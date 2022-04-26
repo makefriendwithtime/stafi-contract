@@ -237,8 +237,7 @@ contract Faucet{
         require(bstate,'recordRewardInfo: not delegator or collator!');
         uint rdDate = block.timestamp.div(24 * 60 * 60);
         require(dayRewardInfo.rdDate < rdDate,'recordRewardInfo: rdDate is illegal!');
-        // if(dayRewardInfo.rdDate > 0 && dayRewardInfo.rdAmount == address(this).balance){
-        if(dayRewardInfo.rdAmount == address(this).balance){
+        if(dayRewardInfo.rdDate > 0 && dayRewardInfo.rdAmount == address(this).balance){
             punishCount += rdDate.sub(dayRewardInfo.rdDate);
         }
         dayRewardInfo.rdDate = rdDate;
@@ -368,7 +367,7 @@ contract Faucet{
                     }else {
                         //这里需要判断是否计划是否已经被执行
                         if(staking.delegation_request_is_pending(address(this), collatorAddr)){
-                            staking.schedule_delegator_bond_less(collatorAddr, info.totAmount);
+                            staking.execute_delegation_request(address(this),collatorAddr);
                         }
                     }
                     Address.sendValue(payable(Igovern.stkTokenAddr()), info.totAmount);
@@ -401,21 +400,5 @@ contract Faucet{
     //原生质押token余额
     function balance() public view returns(uint256){
         return address(this).balance;
-    }
-
-    function test_delegator_exit_is_pending(address delegator) public view returns(bool){
-        return staking.delegator_exit_is_pending(delegator);
-    }
-
-    function test_delegation_request_is_pending(address delegator,address candidate) public view returns(bool){
-        return staking.delegation_request_is_pending(delegator, candidate);
-    }
-
-    function test_candidate_exit_is_pending(address candidate) public view returns(bool){
-        return staking.candidate_exit_is_pending(candidate);
-    }
-
-    function test_candidate_request_is_pending(address candidate) public view returns(bool){
-        return staking.candidate_request_is_pending(candidate);
     }
 }

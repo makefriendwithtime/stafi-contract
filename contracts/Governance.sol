@@ -505,7 +505,7 @@ contract Governance{
 
     //外部治理投票
     function voteURLByNumber(uint _number,uint _state) public {
-        _setVote(14, _number, _state);
+        _setVote(15, _number, _state);
     }
 
     //查看技术方手续费
