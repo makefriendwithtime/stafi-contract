@@ -78,6 +78,25 @@ contract Governance{
     //ether常量
     uint256 public constant etherBase = 1000000000000000000;
 
+    event StartGovern(
+        address indexed creator,
+        uint number,
+        uint governType,
+        uint256 startDate,
+        uint256 endDate,
+        uint uintValue,
+        string strValue,
+        uint256 totalVoter);
+
+    event VoteByNumber(
+        address indexed votor,
+        uint number,
+        uint governType,
+        uint256 totalVoter,
+        uint approveVoter,
+        uint opposeVoter,
+        bool success);
+
     constructor(){
     }
 
@@ -95,17 +114,17 @@ contract Governance{
 
         daoConfig.daoTechFee = 2;
         daoConfig.collatorTechFee = 12;
-        daoConfig.fundsDownLimit = 1 * etherBase;//部署时根据实际网络调整500-5000
+        daoConfig.fundsDownLimit =  1 * etherBase;//部署时根据实际网络调整500-5000
         daoConfig.fundsUpLimit =  5000000 * etherBase;
         daoConfig.perInvestDownLimit =  1 * etherBase;
         daoConfig.voterProportion =  51;
-        daoConfig.rewardDownLimit = 10 * etherBase;
-        daoConfig.calTime =  1;//部署时默认2
+        daoConfig.rewardDownLimit = 1 * etherBase;//部署时默认10
+        daoConfig.calTime =  0;//部署时默认2
         daoConfig.reserveProportion =  5;
         daoConfig.redeemTimeLimit =  1;//部署时默认2
         daoConfig.zeroTimeLimit =  1;//部署时默认3
         daoConfig.marginProportion = 1;//部署时默认5
-        daoConfig.proposalDownLimit = 10000 * etherBase;
+        daoConfig.proposalDownLimit = 1 * etherBase;//部署时默认10000
     }
 
     modifier isGovernance() {
@@ -224,6 +243,7 @@ contract Governance{
         info.success = false;
         governanceInfos[currentNumber] = info;
         governanceTypes[_governType] = _endDate;
+        emit StartGovern(msg.sender,currentNumber,_governType,_startDate,_endDate,_uintValue,_strValue,voters);
     }
 
     //开启技术方手续费治理
@@ -383,6 +403,7 @@ contract Governance{
             info.endDate = block.timestamp;
             info.success = true;
         }
+        emit VoteByNumber(msg.sender,_number,_governType,info.totalVoter,info.approveVoter,info.opposeVoter,info.success);
         return (info.success,info.uintValue);
     }
 

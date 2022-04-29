@@ -69,8 +69,19 @@ contract Pool is ERC20{
     //lock锁
     bool private unlocked = true;
 
-    event CreateFaucet(address indexed faucet);
-    event AddFaucet(address indexed faucet);
+    event CreateFaucet(
+        bool faucetType,
+        address indexed createAddr,
+        address indexed setAddr,
+        address indexed faucetAddr,
+        uint period,
+        uint256 amount);
+    event AddFaucet(
+        bool faucetType,
+        address indexed addAddr,
+        address indexed faucetAddr,
+        uint period,
+        uint256 amount);
 
     constructor() ERC20('stkTokenName','stkTokenSymbol'){
     }
@@ -189,7 +200,7 @@ contract Pool is ERC20{
         collatorAddrs[msg.sender] = addrs;
         setFaucetInfo(collator,_period,_stkAmount,marginAmount,Igovern.authorAmount());
         allCollators.push(address(collator));
-        emit CreateFaucet(address(collator));
+        emit CreateFaucet(true,msg.sender,_techAddr,address(collator),_period,_stkAmount);
     }
 
     //增加合约收集人选票,_stkAmount单位为Wei
@@ -201,7 +212,7 @@ contract Pool is ERC20{
         uint256 marginAmount = getMarginCount(_stkAmount);
         IFaucet collator = IFaucet(_collatorAddr);
         setFaucetInfo(collator,_period,_stkAmount,marginAmount,0);
-        emit AddFaucet(_collatorAddr);
+        emit AddFaucet(true,msg.sender,_collatorAddr,_period,_stkAmount);
     }
 
     //创建合约委托人（水龙头）,_stkAmount单位为Wei
@@ -223,7 +234,7 @@ contract Pool is ERC20{
 
         setFaucetInfo(delegator,_period,_stkAmount,marginAmount,0);
         allDelegators.push(address(delegator));
-        emit CreateFaucet(address(delegator));
+        emit CreateFaucet(false,msg.sender,_collatorAddr,address(delegator),_period,_stkAmount);
     }
 
     //增加合约委托人选票,_stkAmount单位为Wei
@@ -235,7 +246,7 @@ contract Pool is ERC20{
         uint256 marginAmount = getMarginCount(_stkAmount);
         IFaucet delegator = IFaucet(_delegatorAddr);
         setFaucetInfo(delegator,_period,_stkAmount,marginAmount,0);
-        emit AddFaucet(_delegatorAddr);
+        emit AddFaucet(false,msg.sender,_delegatorAddr,_period,_stkAmount);
     }
 
     //获取指定地址的委托人集
