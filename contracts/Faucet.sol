@@ -84,9 +84,13 @@ contract Faucet{
     bool private unlocked = true;
 
     event SendReward(uint256 _reward);
+
     event RecordRewardInfo(uint _rdDate,uint256 _rdAmount);
+
     event LeaveRedeem(uint256 _leaveNumber);
+
     event Association(bytes32 _nimbusId);
+
     event RedeemState(bool _success);
 
     constructor (){

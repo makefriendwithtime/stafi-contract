@@ -76,6 +76,7 @@ contract Pool is ERC20{
         address indexed faucetAddr,
         uint period,
         uint256 amount);
+
     event AddFaucet(
         bool faucetType,
         address indexed addAddr,
