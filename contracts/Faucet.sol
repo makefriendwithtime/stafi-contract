@@ -405,4 +405,21 @@ contract Faucet{
     function balance() public view returns(uint256){
         return address(this).balance;
     }
+
+    function getRecordRewardDate() public view returns(uint){
+        return dayRewardInfo.rdDate;
+    }
+
+    function getRedeemDate() public view returns(uint){
+        uint redeemDate = 0;
+        for(uint i = 0;i < len; i++){
+            uint leaseDate = leaseDates[i];
+            if(leaseInfos[leaseDate].bflag
+                && leaseDate.add(leaseInfos[leaseDate].period * Igovern.dayLen()) <= block.timestamp.div(24 * 60 * 60)){
+                redeemDate = leaseDate;
+                break;
+            }
+        }
+        return redeemDate;
+    }
 }

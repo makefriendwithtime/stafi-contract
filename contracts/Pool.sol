@@ -260,12 +260,12 @@ contract Pool is ERC20{
         return collatorAddrs[_account];
     }
 
-    //获取所有委托人集
+    //获取所有收集人集
     function getAllCollators() public view returns(address[] memory){
         return allCollators;
     }
 
-    //获取所有收集人集
+    //获取所有委托人集
     function getAllDelegators() public view returns(address[] memory){
         return allDelegators;
     }

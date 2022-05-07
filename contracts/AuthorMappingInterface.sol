@@ -25,7 +25,7 @@ interface AuthorMapping {
      * @param new_nimbus_id The new nimbusId to be associated
      */
     function update_association(bytes32 old_nimbus_id, bytes32 new_nimbus_id)
-        external;
+    external;
 
     /**
      * Clear existing associationg

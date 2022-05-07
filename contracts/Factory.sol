@@ -33,6 +33,15 @@ interface IReward{
     function initialize (address _governAddr) external;
 }
 
+interface ISearch{
+    function initialize (
+        address _governAddr,
+        address _poolAddr,
+        address _rewardAddr,
+        address _airdropAddr
+    ) external;
+}
+
 contract Factory is Ownable{
     mapping(uint => address[]) private daoAddrs;
     uint public len = 0;
@@ -46,6 +55,8 @@ contract Factory is Ownable{
     address  public rewardModelAddr;
     //faucet模板地址
     address public faucetModelAddr;
+    //search模板地址
+    address public searchModelAddr;
 
     function createClone(address target) internal returns (address result) {
         bytes20 targetBytes = bytes20(target);
@@ -71,7 +82,8 @@ contract Factory is Ownable{
         && poolModelAddr != address(0)
         && airdropModelAddr != address(0)
         && rewardModelAddr != address(0)
-            && faucetModelAddr != address(0),'ModelAddress not seted!');
+        && faucetModelAddr != address(0)
+            && searchModelAddr != address(0),'ModelAddress not seted!');
         IGovernance Igovern = IGovernance(createClone(governModelAddr));
         Igovern.initialize(_authorAmount,_blockHeight,msg.sender);
 
@@ -84,11 +96,15 @@ contract Factory is Ownable{
         IReward Ireward = IReward(createClone(rewardModelAddr));
         Ireward.initialize(address(Igovern));
 
+        ISearch Isearch = ISearch(createClone(searchModelAddr));
+        Isearch.initialize(address(Igovern),address(Ipool),address(Ireward),address(Iairdrop));
+
         address[] storage addrs = daoAddrs[len];
         addrs.push(address(Igovern));
         addrs.push(address(Ipool));
         addrs.push(address(Iairdrop));
         addrs.push(address(Ireward));
+        addrs.push(address(Isearch));
         daoAddrs[len] = addrs;
         len += 1;
     }
@@ -111,6 +127,10 @@ contract Factory is Ownable{
 
     function setFaucetModelAddr(address _modelAddr) public onlyOwner(){
         faucetModelAddr = _modelAddr;
+    }
+
+    function setSearchModelAddr(address _modelAddr) public onlyOwner(){
+        searchModelAddr = _modelAddr;
     }
 
     function getDaoAddrs(uint _index) public view returns(address[] memory){

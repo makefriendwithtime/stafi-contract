@@ -87,6 +87,7 @@ contract Governance{
         uint uintValue,
         string strValue,
         uint256 totalVoter);
+
     event VoteByNumber(
         address indexed votor,
         uint number,
