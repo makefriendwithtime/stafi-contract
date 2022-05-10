@@ -8,15 +8,25 @@ interface IGovernance{
         uint _blockHeight,
         address _ownerAddress
     ) external;
+    function setStkTokenAddr(address _stkTokenAddr) external;
+    function setRetTokenAddr(address _retTokenAddr) external;
+    function setRewardAddr(address _rewardAddr) external;
+    function setSearchAddr(address _searchAddr) external;
+    function stkTokenAddr() external view returns (address);
+    function retTokenAddr() external view returns (address);
+    function rewardAddr() external view returns (address);
+    function searchAddr() external view returns (address);
 }
 
 interface IPool{
     function initialize (
         address _governAddr,
+        address _owner,
         string memory name_,
         string memory symbol_,
         address _faucetModelAddr
     ) external;
+    function faucetModelAddr() external view returns (address);
 }
 
 interface IAirdrop{
@@ -43,7 +53,7 @@ interface ISearch{
 }
 
 contract Factory is Ownable{
-    mapping(uint => address[]) private daoAddrs;
+    mapping(uint => address) private daoAddrs;
     uint public len = 0;
     //governance模板地址
     address  public governModelAddr;
@@ -88,24 +98,30 @@ contract Factory is Ownable{
         Igovern.initialize(_authorAmount,_blockHeight,msg.sender);
 
         IPool Ipool = IPool(createClone(poolModelAddr));
-        Ipool.initialize(address(Igovern),_stkName,_stkSymbol,faucetModelAddr);
+        Ipool.initialize(address(Igovern),msg.sender,_stkName,_stkSymbol,faucetModelAddr);
+
+        //设置Government的stkToken地址
+        Igovern.setStkTokenAddr(address(Ipool));
 
         IAirdrop Iairdrop = IAirdrop(createClone(airdropModelAddr));
         Iairdrop.initialize(address(Igovern),_retName,_retSymbol,msg.sender,_retAmount);
 
+        //设置Government的retToken地址
+        Igovern.setRetTokenAddr(address(Iairdrop));
+
         IReward Ireward = IReward(createClone(rewardModelAddr));
         Ireward.initialize(address(Igovern));
+
+        //设置Government的奖励地址
+        Igovern.setRewardAddr(address(Ireward));
 
         ISearch Isearch = ISearch(createClone(searchModelAddr));
         Isearch.initialize(address(Igovern),address(Ipool),address(Ireward),address(Iairdrop));
 
-        address[] storage addrs = daoAddrs[len];
-        addrs.push(address(Igovern));
-        addrs.push(address(Ipool));
-        addrs.push(address(Iairdrop));
-        addrs.push(address(Ireward));
-        addrs.push(address(Isearch));
-        daoAddrs[len] = addrs;
+        //设置Government的查询地址
+        Igovern.setSearchAddr(address(Isearch));
+
+        daoAddrs[len] = address(Igovern);
         len += 1;
     }
 
@@ -134,6 +150,17 @@ contract Factory is Ownable{
     }
 
     function getDaoAddrs(uint _index) public view returns(address[] memory){
-        return daoAddrs[_index];
+        address[] memory addrs = new address[](6);
+        if(daoAddrs[_index] != address(0)){
+            IGovernance Igovern = IGovernance(daoAddrs[_index]);
+            addrs[0] = daoAddrs[_index];
+            addrs[1] = Igovern.stkTokenAddr();
+            addrs[2] = Igovern.retTokenAddr();
+            addrs[3] = Igovern.rewardAddr();
+            addrs[4] = Igovern.searchAddr();
+            IPool Ipool = IPool(Igovern.stkTokenAddr());
+            addrs[5] = Ipool.faucetModelAddr();
+        }
+        return addrs;
     }
 }

@@ -25,7 +25,6 @@ interface IGovernance{
     function getPerInvestDownLimit() external view returns(uint);
     function getFundsUpLimit() external view returns(uint);
     function getRedeemTimeLimit() external  view returns(uint);
-    function setStkTokenAddr(address _stkTokenAddr) external;
     function retTokenAddr() external view returns (address);
     function rewardAddr() external view returns (address);
     function getMarginProportion() external  view returns(uint);
@@ -68,6 +67,9 @@ contract Pool is ERC20{
     address[] private allDelegators;
     //lock锁
     bool private unlocked = true;
+    //合约sudo地址
+    address public owner;
+
 
     event CreateFaucet(
         bool faucetType,
@@ -84,23 +86,23 @@ contract Pool is ERC20{
         uint period,
         uint256 amount);
 
-    constructor() ERC20('stkTokenName','stkTokenSymbol'){
+    constructor() ERC20('THIS IS A STAKING TOKEN','stkMOVR'){
     }
 
     //克隆合约初始化调用
     function initialize (
         address _governAddr,
+        address _owner,
         string memory name_,
         string memory symbol_,
         address _faucetModelAddr
     ) external{
         require(address(Igovern) == address(0),'Igovern seted!');
         Igovern = IGovernance(_governAddr);
+        owner = _owner;
         _name = name_;
         _symbol = symbol_;
         faucetModelAddr = _faucetModelAddr;
-        //设置Government的stkToken地址
-        Igovern.setStkTokenAddr(address(this));
         //克隆合约需要初始化非默认值非constant的参数值
         unlocked = true;
     }
@@ -122,6 +124,15 @@ contract Pool is ERC20{
             mstore(add(clone, 0x28), 0x5af43d82803e903d91602b57fd5bf30000000000000000000000000000000000)
             result := create(0, clone, 0x37)
         }
+    }
+
+    modifier isOwner() {
+        require(msg.sender == owner,'Not management!');
+        _;
+    }
+
+    function setFaucetModelAddr(address _faucetModelAddr) public isOwner{
+        faucetModelAddr = _faucetModelAddr;
     }
 
     //重写_beforeTokenTransfer,用于控制memberAddrs、memberTimes、memberTotal

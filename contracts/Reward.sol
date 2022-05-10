@@ -4,7 +4,6 @@ import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/utils/Address.sol";
 
 interface IGovernance{
-    function setRewardAddr(address _rewardAddr) external;
     function stkTokenAddr() external view returns (address);
     function getCalTime() external view returns(uint);
 }
@@ -27,6 +26,10 @@ contract Reward{
     //DAO奖励
     mapping(address => uint256) public daoRewards;
 
+    event SendValue(
+        address indexed recipient,
+        uint256 amount);
+
     constructor (){
     }
 
@@ -34,8 +37,6 @@ contract Reward{
     function initialize (address _governAddr) external{
         require(address(Igovern) == address(0),'Igovern seted!');
         Igovern = IGovernance(_governAddr);
-        //设置Government的奖励地址
-        Igovern.setRewardAddr(address(this));
         //克隆合约需要初始化非默认值非constant的参数值
         unlocked = true;
     }
@@ -73,6 +74,7 @@ contract Reward{
                     uint256 reward = newReward.mul(amount).div(totalSupply);
                     daoRewards[account] = daoRewards[account].add(reward);
                     Address.sendValue(payable(account),reward);
+                    emit SendValue(account,reward);
                 }
             }
         }

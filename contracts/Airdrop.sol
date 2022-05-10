@@ -6,7 +6,6 @@ import "@openzeppelin/contracts/utils/Address.sol";
 
 interface IGovernance{
     function stkTokenAddr() external view returns (address);
-    function setRetTokenAddr(address _stkTokenAddr) external;
     function getCalTime() external  view returns(uint);
     function getFundsDownLimit() external  view returns(uint);
     function getZeroTimeLimit() external  view returns(uint);
@@ -35,7 +34,7 @@ contract Airdrop is ERC20{
     //锁定信息
     mapping(address => mapping (uint => uint)) public lockInfos;
 
-    constructor () ERC20('retTokenName','retTokenSymbol'){
+    constructor () ERC20('THIS IS A REWARD TOKEN','retMOVR'){
     }
 
     //克隆合约初始化调用,_amount单位为Wei
@@ -47,14 +46,12 @@ contract Airdrop is ERC20{
         uint _amount
     ) external{
         require(address(Igovern) == address(0),'Igovern seted!');
-        _name = name_;
-        _symbol = symbol_;
         if(_amount > 0){
             _mint(_account, _amount);
         }
+        _name = name_;
+        _symbol = symbol_;
         Igovern = IGovernance(_governAddr);
-        //设置Government的retToken地址
-        Igovern.setRetTokenAddr(address(this));
         //克隆合约需要初始化非默认值非constant的参数值
         unlocked = true;
     }
