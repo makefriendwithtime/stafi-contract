@@ -94,10 +94,8 @@ contract Governance{
         address indexed votor,
         uint number,
         uint governType,
-        uint256 totalVoter,
-        uint approveVoter,
-        uint opposeVoter,
-        bool success);
+        uint state,
+        uint voters);
 
     constructor(){
     }
@@ -409,7 +407,8 @@ contract Governance{
             info.endDate = block.timestamp;
             info.success = true;
         }
-        emit VoteByNumber(msg.sender,_number,_governType,info.totalVoter,info.approveVoter,info.opposeVoter,info.success);
+        governanceInfos[_number] = info;
+        emit VoteByNumber(msg.sender,_number,_governType,_state,Ipool.balanceOf(msg.sender));
         return (info.success,info.uintValue);
     }
 
