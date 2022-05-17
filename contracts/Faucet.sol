@@ -324,8 +324,10 @@ contract Faucet{
                 if(staking.candidate_exit_is_pending(address(this))){
                     staking.execute_leave_candidates(address(this),staking.candidate_delegation_count(address(this)));
                 }
-                authorMapping.clear_association(nimbusId);
-                nimbusId = 0;
+                if(nimbusId > 0){
+                    authorMapping.clear_association(nimbusId);
+                    nimbusId = 0;
+                }
                 //奖励收集人
                 uint256 reward = address(this).balance.sub(leaseTotal);
                 Address.sendValue(payable(Igovern.stkTokenAddr()), leaseTotal);
