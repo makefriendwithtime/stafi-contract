@@ -191,8 +191,8 @@ contract Pool is ERC20{
         require(balanceOf(msg.sender) >= _amount && address(this).balance >= _amount,'Balance is not enough!');
         uint day = (block.timestamp).sub(memberTimes[msg.sender]).div(60 * 60 *24);
         require(day >= Igovern.getRedeemTimeLimit(),'RedeemTimeLimit is not yet');
-        Address.sendValue(payable(msg.sender), _amount);
         _burn(msg.sender,_amount);
+        Address.sendValue(payable(msg.sender), _amount);
     }
 
     //创建合约收集人（水龙头）,_stkAmount单位为Wei

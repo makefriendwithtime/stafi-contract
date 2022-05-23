@@ -376,8 +376,8 @@ contract Faucet{
                             staking.execute_delegation_request(address(this),collatorAddr);
                         }
                     }
-                    Address.sendValue(payable(Igovern.stkTokenAddr()), info.totAmount);
                     leaseTotal = leaseTotal.sub(info.totAmount);
+                    Address.sendValue(payable(Igovern.stkTokenAddr()), info.totAmount);
                     Iairdrop.unlockLeaseMargin(info.reddeemAddr,leaseDate,info.totMarginAmount);
                     break;
                 }
