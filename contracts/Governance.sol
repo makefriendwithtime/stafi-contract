@@ -65,14 +65,14 @@ contract Governance{
         uint256 totalVoter;//应投票总票数
         uint approveVoter;//赞成票
         uint opposeVoter;//反对票
-        bool success; //治理投票标记 true成功 false失败
+        uint8 governState; //治理状态 0未开始 1进行中 2成功 3失败 4过期
     }
     //提案信息,governanceInfos[number]=info,number表示提案编号,info表示提案对象
     mapping(uint => GovernanceInfo) private governanceInfos;
     //提案投票governanceVotes[number][adr]=state,number表示提案编号,adr表示投票人,state表示投票状态0未投票 1赞成 2反对
     mapping(uint => mapping (address => uint)) private governanceVotes;
-    //记录提案类型的提案最新结束时间governanceInfos[type]=date,type表示提案类型,date表示提案最新结束时间
-    mapping(uint => uint256) private governanceTypes;
+    //记录提案类型的提案最新结束时间governEndDate[type]=date,type表示提案类型,date表示提案最新结束时间
+    mapping(uint => uint256) private governEndDate;
     //合约sudo地址
     address public owner;
     //质押池
@@ -119,7 +119,7 @@ contract Governance{
         daoConfig.perInvestDownLimit =  1 * etherBase;
         daoConfig.voterProportion =  51;
         daoConfig.rewardDownLimit = 1 * etherBase;//部署时默认10
-        daoConfig.calTime =  0;//部署时默认2
+        daoConfig.calTime =  1;//部署时默认2
         daoConfig.reserveProportion =  5;
         daoConfig.redeemTimeLimit =  1;//部署时默认2
         daoConfig.zeroTimeLimit =  1;//部署时默认3
@@ -141,23 +141,23 @@ contract Governance{
     }
 
     function setStkTokenAddr(address _stkTokenAddr) public{
-        require(stkTokenAddr == address(0) || msg.sender == owner,'Not management!');
+        require(stkTokenAddr == address(0) || msg.sender == owner,'Seted or Not management!');
         stkTokenAddr = _stkTokenAddr;
         Ipool = IPool(_stkTokenAddr);
     }
 
     function setRewardAddr(address _rewardAddr) public{
-        require(rewardAddr == address(0) || msg.sender == owner,'Not management!');
+        require(rewardAddr == address(0) || msg.sender == owner,'Seted or Not management!');
         rewardAddr = _rewardAddr;
     }
 
     function setRetTokenAddr(address _retTokenAddr) public{
-        require(retTokenAddr == address(0) || msg.sender == owner,'Not management!');
+        require(retTokenAddr == address(0) || msg.sender == owner,'Seted or Not management!');
         retTokenAddr = _retTokenAddr;
     }
 
     function setSearchAddr(address _searchAddr) public{
-        require(searchAddr == address(0) || msg.sender == owner,'Not management!');
+        require(searchAddr == address(0) || msg.sender == owner,'Seted or Not management!');
         searchAddr = _searchAddr;
     }
 
@@ -228,7 +228,7 @@ contract Governance{
     ,uint256 _startDate
     ,uint256 _endDate) private {
         require(_startDate > block.timestamp && _startDate < _endDate,'Date is illegal!');
-        require(governanceTypes[_governType] == 0 || governanceTypes[_governType] < _startDate,'Governing!');
+        require(governEndDate[_governType] == 0 || governEndDate[_governType] < _startDate,'Governing!');
         //获取pool的stkToken，达到要求数量则允许提案
         require(Ipool.balanceOf(msg.sender) >= daoConfig.proposalDownLimit,'Balance less than proposalDownLimit!');
         uint day = (block.timestamp).sub(Ipool.memberTimes(msg.sender)).div(60 * 60 *24);
@@ -244,9 +244,9 @@ contract Governance{
         info.totalVoter = voters;
         info.approveVoter = 0;
         info.opposeVoter = 0;
-        info.success = false;
+        info.governState = 0;
         governanceInfos[currentNumber] = info;
-        governanceTypes[_governType] = _endDate;
+        governEndDate[_governType] = _endDate;
         emit StartGovern(msg.sender,currentNumber,_governType,_startDate,_endDate,_uintValue,_strValue,voters);
     }
 
@@ -394,7 +394,9 @@ contract Governance{
         require(governanceVotes[_number][msg.sender] == 0,'Voted!');
 
         require(Ipool.balanceOf(msg.sender) > 0,'Balance is zero!');
-        uint day = (block.timestamp).sub(Ipool.memberTimes(msg.sender)).div(60 * 60 *24);
+        require(Ipool.memberTimes(msg.sender) < info.startDate,'stakeTime not enought!');
+
+        uint day = (info.startDate).sub(Ipool.memberTimes(msg.sender)).div(60 * 60 *24);
         require(day >= daoConfig.calTime,'stakeTime less than calTime!');
 
         governanceVotes[_number][msg.sender] = _state;
@@ -405,11 +407,16 @@ contract Governance{
         }
         if(info.approveVoter.mul(100).div(info.totalVoter) >= daoConfig.voterProportion){
             info.endDate = block.timestamp;
-            info.success = true;
+            governEndDate[_governType] = block.timestamp;
+            info.governState = 2;
+        }else if(info.opposeVoter.mul(100).div(info.totalVoter) > (100 - daoConfig.voterProportion)){
+            info.endDate = block.timestamp;
+            governEndDate[_governType] = block.timestamp;
+            info.governState = 3;
         }
         governanceInfos[_number] = info;
         emit VoteByNumber(msg.sender,_number,_governType,_state,Ipool.balanceOf(msg.sender));
-        return (info.success,info.uintValue);
+        return (info.governState == 2,info.uintValue);
     }
 
     //技术方手续费治理投票
@@ -421,7 +428,7 @@ contract Governance{
         }
     }
 
-    //收集人服务费治理投票
+    //收集人服务费治理投票，_state表示投票状态1赞成 2反对
     function voteCTByNumber(uint _number,uint _state) public {
         (bool success,uint uintValue) = _setVote(1, _number, _state);
         if(success){
@@ -599,7 +606,7 @@ contract Governance{
         return daoConfig.proposalDownLimit;
     }
 
-    //查看治理信息,根据提案编号
+    //查看治理信息,根据提案编号 governState表示0未开始 1进行中 2成功 3失败 4过期
     function getGovernanceInfo(uint _number) public view returns(
         uint governType,
         uint256 startDate,
@@ -609,9 +616,20 @@ contract Governance{
         uint256 totalVoter,
         uint approveVoter,
         uint opposeVoter,
-        bool success
+        uint8 governState
     ){
         GovernanceInfo memory info = governanceInfos[_number];
+        if(info.governState == 0){
+            if(info.startDate > block.timestamp){
+                governState = 0;
+            }else if(info.startDate <= block.timestamp && block.timestamp <= block.timestamp){
+                governState = 1;
+            }else{
+                governState = 4;
+            }
+        }else{
+            governState = info.governState;
+        }
         return (
         info.governType,
         info.startDate,
@@ -621,7 +639,12 @@ contract Governance{
         info.totalVoter,
         info.approveVoter,
         info.opposeVoter,
-        info.success);
+        governState);
+    }
+
+    //查看治理投票结束日期,根据提案类型
+    function getGovernEndDate(uint _governType) public view returns(uint256){
+        return governEndDate[_governType];
     }
 
     //查看治理投票状态,根据提案编号和地址

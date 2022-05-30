@@ -25,6 +25,8 @@ contract Reward{
     bool private unlocked = true;
     //DAO奖励
     mapping(address => uint256) public daoRewards;
+    //合约sudo地址
+    address public owner;
 
     event SendValue(
         address indexed recipient,
@@ -34,11 +36,21 @@ contract Reward{
     }
 
     //克隆合约初始化调用
-    function initialize (address _governAddr) external{
+    function initialize (address _governAddr,address _owner) external{
         require(address(Igovern) == address(0),'Igovern seted!');
         Igovern = IGovernance(_governAddr);
+        owner = _owner;
         //克隆合约需要初始化非默认值非constant的参数值
         unlocked = true;
+    }
+
+    modifier isOwner() {
+        require(msg.sender == owner,'Not management!');
+        _;
+    }
+
+    function setGovernAddr(address _governAddr) public isOwner{
+        Igovern = IGovernance(_governAddr);
     }
 
     modifier lock() {

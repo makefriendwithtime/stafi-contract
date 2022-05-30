@@ -9,8 +9,9 @@ interface IFaucet{
         address _governAddr,
         address _collatorAddr,
         address _techAddr,
-        address _owner,
-        bool _faucetType
+        address _faucetOwner,
+        bool _faucetType,
+        address _owner
     ) external;
     function setLeaseInfo(
         address _reddeemAddr,
@@ -131,6 +132,10 @@ contract Pool is ERC20{
         _;
     }
 
+    function setGovernAddr(address _governAddr) public isOwner{
+        Igovern = IGovernance(_governAddr);
+    }
+
     function setFaucetModelAddr(address _faucetModelAddr) public isOwner{
         faucetModelAddr = _faucetModelAddr;
     }
@@ -206,7 +211,7 @@ contract Pool is ERC20{
         uint256 marginAmount = getMarginCount(_stkAmount.add(Igovern.authorAmount()));
         //创建收集人
         IFaucet collator = IFaucet(createClone(faucetModelAddr));
-        collator.initialize(address(Igovern),address(0),_techAddr,msg.sender,true);
+        collator.initialize(address(Igovern),address(0),_techAddr,msg.sender,true,owner);
         address[] storage addrs = collatorAddrs[msg.sender];
         addrs.push(address(collator));
         collatorAddrs[msg.sender] = addrs;
@@ -239,7 +244,7 @@ contract Pool is ERC20{
         uint256 marginAmount = getMarginCount(_stkAmount);
         //创建委托人
         IFaucet delegator = IFaucet(createClone(faucetModelAddr));
-        delegator.initialize(address(Igovern),_collatorAddr,address(0),address(0),false);
+        delegator.initialize(address(Igovern),_collatorAddr,address(0),address(0),false,owner);
         address[] storage addrs = delegatorAddrs[msg.sender];
         addrs.push(address(delegator));
         delegatorAddrs[msg.sender] = addrs;

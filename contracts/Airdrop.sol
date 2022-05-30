@@ -33,6 +33,8 @@ contract Airdrop is ERC20{
     bool private unlocked = true;
     //锁定信息
     mapping(address => mapping (uint => uint)) public lockInfos;
+    //合约sudo地址
+    address public owner;
 
     constructor () ERC20('THIS IS A REWARD TOKEN','retMOVR'){
     }
@@ -43,7 +45,8 @@ contract Airdrop is ERC20{
         string memory name_,
         string memory symbol_,
         address _account,
-        uint _amount
+        uint _amount,
+        address _owner
     ) external{
         require(address(Igovern) == address(0),'Igovern seted!');
         if(_amount > 0){
@@ -52,8 +55,18 @@ contract Airdrop is ERC20{
         _name = name_;
         _symbol = symbol_;
         Igovern = IGovernance(_governAddr);
+        owner = _owner;
         //克隆合约需要初始化非默认值非constant的参数值
         unlocked = true;
+    }
+
+    modifier isOwner() {
+        require(msg.sender == owner,'Not management!');
+        _;
+    }
+
+    function setGovernAddr(address _governAddr) public isOwner{
+        Igovern = IGovernance(_governAddr);
     }
 
     modifier lock() {

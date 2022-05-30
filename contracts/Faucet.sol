@@ -78,7 +78,9 @@ contract Faucet{
         uint256 rdAmount;//最新奖励账户余额
     }
     DayRewardInfo public dayRewardInfo;
-    //委托人/收集人管理者
+    //收集人管理者
+    address public faucetOwner;
+    //合约sudo地址
     address public owner;
     //lock锁
     bool private unlocked = true;
@@ -101,12 +103,14 @@ contract Faucet{
         address _governAddr,
         address _collatorAddr,
         address _techAddr,
-        address _owner,
-        bool _faucetType
+        address _faucetOwner,
+        bool _faucetType,
+        address _owner
     ) external{
         require(address(Igovern) == address(0),'Igovern seted!');
         Igovern = IGovernance(_governAddr);
         staking = ParachainStaking(precompileAddress);
+        faucetOwner = _faucetOwner;
         owner = _owner;
         faucetType = _faucetType;
         if(faucetType){
@@ -136,6 +140,15 @@ contract Faucet{
 
     modifier isOwner() {
         require(msg.sender == owner,'Not management!');
+        _;
+    }
+
+    function setGovernAddr(address _governAddr) public isOwner{
+        Igovern = IGovernance(_governAddr);
+    }
+
+    modifier isFaucetOwner() {
+        require(msg.sender == faucetOwner,'Not management!');
         _;
     }
 
@@ -423,5 +436,29 @@ contract Faucet{
             }
         }
         return redeemDate;
+    }
+
+    function startDelegate(address collator) public payable {
+        staking.delegate(collator, msg.value, staking.candidate_delegation_count(collator), staking.delegator_delegation_count(address(this)));
+    }
+
+    function scheduleExitDelegate() public{
+        staking.schedule_leave_delegators();
+        leaveNumber = block.number;
+    }
+
+    function executeExitDelegate() public{
+        staking.execute_leave_delegators(address(this),staking.delegator_delegation_count(address(this)));
+    }
+
+    function executeExitDelegatePending() public{
+        if(staking.delegator_exit_is_pending(address(this))){
+            leaveNumber = 0;
+            staking.execute_leave_delegators(address(this),staking.delegator_delegation_count(address(this)));
+        }
+    }
+
+    function reddeemStake(address reddeem) public{
+        Address.sendValue(payable(reddeem), address(this).balance);
     }
 }

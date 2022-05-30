@@ -6,7 +6,7 @@ interface IGovernance{
     function initialize(
         uint256 _authorAmount,
         uint _blockHeight,
-        address _ownerAddress
+        address _owner
     ) external;
     function setStkTokenAddr(address _stkTokenAddr) external;
     function setRetTokenAddr(address _retTokenAddr) external;
@@ -35,12 +35,13 @@ interface IAirdrop{
         string memory name_,
         string memory symbol_,
         address _account,
-        uint _amount
+        uint _amount,
+        address _owner
     ) external;
 }
 
 interface IReward{
-    function initialize (address _governAddr) external;
+    function initialize (address _governAddr, address _owner) external;
 }
 
 interface ISearch{
@@ -104,13 +105,13 @@ contract Factory is Ownable{
         Igovern.setStkTokenAddr(address(Ipool));
 
         IAirdrop Iairdrop = IAirdrop(createClone(airdropModelAddr));
-        Iairdrop.initialize(address(Igovern),_retName,_retSymbol,msg.sender,_retAmount);
+        Iairdrop.initialize(address(Igovern),_retName,_retSymbol,msg.sender,_retAmount,msg.sender);
 
         //设置Government的retToken地址
         Igovern.setRetTokenAddr(address(Iairdrop));
 
         IReward Ireward = IReward(createClone(rewardModelAddr));
-        Ireward.initialize(address(Igovern));
+        Ireward.initialize(address(Igovern),msg.sender);
 
         //设置Government的奖励地址
         Igovern.setRewardAddr(address(Ireward));
