@@ -1,10 +1,10 @@
 pragma solidity ^0.4.26;
 
 interface IPool{
+    function getMemberAddrs() external view returns (address[] memory);
     function getAllDelegators() external view returns(address[] memory);
     function getAllCollators() external view returns(address[] memory);
     function totalSupply() external view returns (uint256);
-    function memberTotal() external view returns (uint);
 }
 
 interface IFaucet{
@@ -13,7 +13,7 @@ interface IFaucet{
     function balance() external view returns(uint256);
     function punishCount() external view returns(uint256);
     function getRecordRewardDate() external view returns(uint);
-    function getRedeemDate() external view returns(uint);
+    function getPendingRedeemDate() external view returns(uint);
 }
 
 interface IGovernance{
@@ -67,7 +67,7 @@ contract Search{
     function isScheduleRedeemStake(address _faucetAddr) public view returns(bool){
         return IFaucet(_faucetAddr).bstate()
         && IFaucet(_faucetAddr).leaveNumber() == 0
-        && IFaucet(_faucetAddr).getRedeemDate() > 0;
+        && IFaucet(_faucetAddr).getPendingRedeemDate() > 0;
     }
 
     function isExecuteRedeemStake(address _faucetAddr) public view returns(bool){
@@ -103,6 +103,6 @@ contract Search{
         && (block.timestamp - Iairdrop.dropLastTime()) / (60 * 60 *24) > 0
         && Igovern.getCalTime() > 0
         && Ipool.totalSupply() >= Igovern.getFundsDownLimit()
-        && Ipool.memberTotal() > 0;
+        && Ipool.getMemberAddrs().length > 0;
     }
 }

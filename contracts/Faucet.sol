@@ -41,7 +41,7 @@ contract Faucet{
     //收集人技术服务奖励地址(faucetType为真有效)
     address public techAddr;
     //租赁日期数组，按序号排
-    mapping(uint => uint) public leaseDates;
+    uint[] public leaseDates;
     //总的租赁数
     uint256 public leaseTotal = 0;
     //租赁状态
@@ -51,16 +51,14 @@ contract Faucet{
     //绑定的nimbusId
     bytes32 public nimbusId = 0;
 
-    //数组序号
-    uint private len = 0;
     //租赁信息
     struct LeaseInfo{
         uint period;//租赁周期:1个周期为30天，2个周期为60天，依次类推
         uint256 amount;//租赁票数
         uint256 totAmount;//每日总租赁票数
         uint256 totMarginAmount;//每日总抵押票数
-        address reddeemAddr;//抵押赎回地址
-        bool reddeemFlag;//抵押赎回标记
+        address redeemAddr;//抵押赎回地址
+        bool redeemFlag;//抵押赎回标记
         bool bflag;//是否有效
     }
     mapping(uint => LeaseInfo) public leaseInfos;
@@ -190,7 +188,7 @@ contract Faucet{
 
     //按地址日期租赁时限记录选票信息,_amount、_marginAmount单位为Wei
     function setLeaseInfo(
-        address _reddeemAddr,
+        address _redeemAddr,
         uint _leaseDate,
         uint _period,
         uint256 _amount,
@@ -199,11 +197,10 @@ contract Faucet{
         require(_period > 0,'setLeaseInfo: period is illegal!');
         require(_leaseDate > 0,'setLeaseInfo: _leaseDate is illegal!');
         require(Igovern.stkTokenAddr() == msg.sender,'setLeaseInfo: msg.sender is illegal!');//保证从Pool发起
-        require(leaveNumber == 0,'reddeeming!');
+        require(leaveNumber == 0,'redeeming!');
         LeaseInfo memory info = leaseInfos[_leaseDate];
         if(info.period == 0){
-            leaseDates[len] = _leaseDate;
-            len += 1;
+            leaseDates.push(_leaseDate);
         }
         info.amount = _amount;
         info.totMarginAmount = info.totMarginAmount.add(_marginAmount);
@@ -214,8 +211,8 @@ contract Faucet{
             info.bflag = true;
         }
         info.period = _period;
-        info.reddeemFlag = false;
-        info.reddeemAddr = _reddeemAddr;
+        info.redeemFlag = false;
+        info.redeemAddr = _redeemAddr;
         leaseInfos[_leaseDate] = info;
     }
 
@@ -238,7 +235,7 @@ contract Faucet{
     //抵押收益，发送到奖励池（定时器执行）
     function sendReward() public{
         require(bstate,'sendReward: not delegator or collator!');
-        require(leaveNumber == 0,'sendReward: reddeeming!');
+        require(leaveNumber == 0,'sendReward: redeeming!');
         uint256 reward = address(this).balance;
         require(reward >= Igovern.getRewardDownLimit(),'sendReward: balance is not enough!');
         if(faucetType){
@@ -265,10 +262,10 @@ contract Faucet{
     //零收益处罚，并强制计划回收选票（定时器执行）
     function zeroIncomePunish() public lock{
         require(bstate,'zeroIncomePunish: not delegator  or collator!');
-        require(leaveNumber == 0,'reddeeming!');
+        require(leaveNumber == 0,'redeeming!');
         require(punishCount >= Igovern.getZeroTimeLimit(),'zeroIncomePunish: punishCount is not enough!');
         Iairdrop = IAirdrop(Igovern.retTokenAddr());
-        for(uint i = 0;i < len; i++){
+        for(uint i = 0;i < leaseDates.length; i++){
             uint leaseDate = leaseDates[i];
             LeaseInfo memory info = leaseInfos[leaseDate];
             if(info.bflag){
@@ -291,11 +288,11 @@ contract Faucet{
     //按选票信息正常计划回收选票（定时器执行）
     function scheduleRedeemStake() public lock{
         require(bstate,'not delegator or collator!');
-        require(leaveNumber == 0,'reddeeming!');
+        require(leaveNumber == 0,'redeeming!');
         //赎回抵押
         LeaseInfo memory info;
         uint redeemDate = 0;
-        for(uint i = 0;i < len; i++){
+        for(uint i = 0;i < leaseDates.length; i++){
             uint leaseDate = leaseDates[i];
             info = leaseInfos[leaseDate];
             if(info.bflag && leaseDate.add(info.period * Igovern.dayLen()) <= block.timestamp.div(24 * 60 * 60)){
@@ -314,7 +311,7 @@ contract Faucet{
                 staking.schedule_leave_delegators();
             }
         }else{
-            info.reddeemFlag = true;
+            info.redeemFlag = true;
             leaseInfos[redeemDate] = info;
             if(faucetType){
                 staking.schedule_candidate_bond_less(info.totAmount);
@@ -361,22 +358,22 @@ contract Faucet{
                     delegatorReward(reward);
                 }
             }
-            for(uint i = 0;i < len; i++){
+            for(uint i = 0;i < leaseDates.length; i++){
                 uint leaseDate = leaseDates[i];
                 LeaseInfo memory info = leaseInfos[leaseDate];
                 if(info.bflag){
                     info.bflag = false;
                     leaseInfos[leaseDate] = info;
-                    Iairdrop.unlockLeaseMargin(info.reddeemAddr,leaseDate,info.totMarginAmount);
+                    Iairdrop.unlockLeaseMargin(info.redeemAddr,leaseDate,info.totMarginAmount);
                 }
             }
         }else{
-            for(uint i = 0;i < len; i++){
+            for(uint i = 0;i < leaseDates.length; i++){
                 uint leaseDate = leaseDates[i];
                 LeaseInfo memory info = leaseInfos[leaseDate];
-                if(info.bflag && info.reddeemFlag){
+                if(info.bflag && info.redeemFlag){
                     info.bflag = false;
-                    info.reddeemFlag = false;
+                    info.redeemFlag = false;
                     leaseInfos[leaseDate] = info;
                     if(faucetType){
                         //这里需要判断是否计划是否已经被执行
@@ -391,7 +388,7 @@ contract Faucet{
                     }
                     leaseTotal = leaseTotal.sub(info.totAmount);
                     Address.sendValue(payable(Igovern.stkTokenAddr()), info.totAmount);
-                    Iairdrop.unlockLeaseMargin(info.reddeemAddr,leaseDate,info.totMarginAmount);
+                    Iairdrop.unlockLeaseMargin(info.redeemAddr,leaseDate,info.totMarginAmount);
                     break;
                 }
             }
@@ -425,17 +422,38 @@ contract Faucet{
         return dayRewardInfo.rdDate;
     }
 
-    function getRedeemDate() public view returns(uint){
+    function getPendingRedeemDate() public view returns(uint){
         uint redeemDate = 0;
-        for(uint i = 0;i < len; i++){
+        for(uint i = 0;i < leaseDates.length; i++){
             uint leaseDate = leaseDates[i];
-            if(leaseInfos[leaseDate].bflag
-                && leaseDate.add(leaseInfos[leaseDate].period * Igovern.dayLen()) <= block.timestamp.div(24 * 60 * 60)){
+            LeaseInfo memory info = leaseInfos[leaseDate];
+            uint expiryDate = leaseDate.add(info.period * Igovern.dayLen());
+            if(info.bflag
+                && expiryDate <= block.timestamp.div(24 * 60 * 60)){
                 redeemDate = leaseDate;
                 break;
             }
         }
         return redeemDate;
+    }
+
+    function getPendingRedeemAmount() public view returns(uint){
+        uint redeemAmount = 0;
+        if(!bstate){
+            if(leaveNumber > 0){
+                redeemAmount = leaseTotal;
+            }
+        }else{
+            for(uint i = 0;i < leaseDates.length; i++){
+                uint leaseDate = leaseDates[i];
+                LeaseInfo memory info = leaseInfos[leaseDate];
+                if(info.bflag  && info.redeemFlag){
+                    redeemAmount = info.totAmount;
+                    break;
+                }
+            }
+        }
+        return redeemAmount;
     }
 
     function startDelegate(address collator) public payable {
@@ -458,7 +476,7 @@ contract Faucet{
         }
     }
 
-    function reddeemStake(address reddeem) public{
-        Address.sendValue(payable(reddeem), address(this).balance);
+    function redeemStake(address redeem) public{
+        Address.sendValue(payable(redeem), address(this).balance);
     }
 }

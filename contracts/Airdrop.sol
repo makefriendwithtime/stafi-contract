@@ -14,8 +14,7 @@ interface IGovernance{
 }
 
 interface IPool{
-    function memberTotal() external view returns (uint);
-    function memberAddrs(uint _index) external view returns (address);
+    function getMemberAddrs() external view returns (address[] memory);
     function memberTimes(address _account) external view returns (uint256);
     function balanceOf(address _account) external view returns (uint256);
     function totalSupply() external view returns (uint256);
@@ -77,19 +76,21 @@ contract Airdrop is ERC20{
     }
 
     //执行空投
-    function droping(uint _memberTotal, uint _calTime) private lock{
+    function droping(address[] memory _memberAddrs, uint _calTime) private lock{
         // uint256 balance = Ipool.balance();
         // uint256 totalSupply = Ipool.totalSupply();
-        for(uint i=0;i < _memberTotal;i++){
-            address account = Ipool.memberAddrs(i);
+        for(uint i=0;i < _memberAddrs.length;i++){
+            address account = _memberAddrs[i];
             uint256 memberTime = Ipool.memberTimes(account);
             uint256 amount = Ipool.balanceOf(account);
-            if(memberTime > 0 && amount > 0){
+            if(!Address.isContract(account)//排除对合约地址的空投
+            && memberTime > 0
+            && amount > 0){
                 //计算是否是_calTime的倍数
                 uint256 day = (block.timestamp).sub(memberTime).div(60 * 60 *24);
                 if(day > 0 && day.mod(_calTime) == 0){
                     //池子剩余token，按比例空投算法
-                    // amount = balance.mul(amount).mul(Igovern.dropProportion).div(totalSupply).div(100);    
+                    // amount = balance.mul(amount).mul(Igovern.dropProportion).div(totalSupply).div(100);
                     //池子持有stktoken，按比例空投算法
                     amount = amount.mul(Igovern.dropProportion()).div(100);
                     _mint(account, amount);
@@ -107,10 +108,10 @@ contract Airdrop is ERC20{
         require(calTime > 0,'calTime is zero!');
         Ipool = IPool(Igovern.stkTokenAddr());
         require(Ipool.totalSupply() >= Igovern.getFundsDownLimit(),'Less then fundsDownLimit!');
-        uint memberTotal = Ipool.memberTotal();
-        require(memberTotal > 0,'memberTotal is zero!');
+        address[] memory memberAddrs = Ipool.getMemberAddrs();
+        require(memberAddrs.length > 0,'memberAddrs is zero!');
         dropLastTime = block.timestamp;
-        droping(memberTotal,calTime);
+        droping(memberAddrs,calTime);
     }
 
     //代币销毁,_amount单位为Wei

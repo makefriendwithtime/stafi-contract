@@ -20,7 +20,6 @@ contract Governance{
         uint voterProportion;//投票参与票数有效比例51%
         uint rewardDownLimit;//最低分配奖励额度10
         uint calTime ;//租赁收益和空投起始计算时限2
-        uint reserveProportion;//Pool准备金比例5%
         uint redeemTimeLimit;//Pool最低赎回时限2
         uint zeroTimeLimit;//收集人和委托人零受益时限3
         uint marginProportion;//收集人和委托人租赁保证金比例（retToken）5/10
@@ -51,7 +50,9 @@ contract Governance{
     //retToken空投比例
     uint public constant dropProportion = 20;
     //每区间peroid包含的天数
-    uint public constant dayLen = 3;//默认30
+    uint public constant dayLen = 3;//默认10
+    //奖励类型
+    bool public constant rewardType = true; //true奖励stkToken fals奖励质押Token
 
     //提案编号,顺序递增
     uint public currentNumber = 0;
@@ -120,7 +121,6 @@ contract Governance{
         daoConfig.voterProportion =  51;
         daoConfig.rewardDownLimit = 1 * etherBase;//部署时默认10
         daoConfig.calTime =  1;//部署时默认2
-        daoConfig.reserveProportion =  5;
         daoConfig.redeemTimeLimit =  1;//部署时默认2
         daoConfig.zeroTimeLimit =  1;//部署时默认3
         daoConfig.marginProportion = 1;//部署时默认5
@@ -198,10 +198,6 @@ contract Governance{
 
     function setCalTime(uint _calTime) public isGovernOwner{
         daoConfig.calTime =  _calTime;
-    }
-
-    function setReserveProportion(uint _reserveProportion) public isGovernOwner{
-        daoConfig.reserveProportion =  _reserveProportion;
     }
 
     function setRedeemTimeLimit(uint _redeemTimeLimit) public isGovernOwner{
@@ -323,15 +319,6 @@ contract Governance{
         uint256 _endDate
     ) public isGovernance{
         _setGovern(_calTime, '', 9, _startDate, _endDate);
-    }
-
-    //开启Pool准备金比例治理
-    function startRPGovern(
-        uint _reserveProportion,
-        uint256 _startDate,
-        uint256 _endDate
-    ) public isGovernance{
-        _setGovern(_reserveProportion, '', 10, _startDate, _endDate);
     }
 
     //开启Pool最低赎回时限治理
@@ -491,15 +478,6 @@ contract Governance{
         }
     }
 
-    //Pool准备金比例治理投票
-    function voteRPByNumber(uint _number,uint _state) public {
-        (bool success,uint uintValue) = _setVote(10, _number, _state);
-        if(success){
-            //治理成功
-            daoConfig.reserveProportion = uintValue;
-        }
-    }
-
     //Pool最低赎回时限治理投票
     function voteRTLByNumber(uint _number,uint _state) public {
         (bool success,uint uintValue) = _setVote(11, _number, _state);
@@ -579,11 +557,6 @@ contract Governance{
     //查看租赁收益和空投起始计算时限
     function getCalTime() public  view returns(uint){
         return daoConfig.calTime;
-    }
-
-    //查看Pool准备金比例
-    function getReserveProportion() public  view returns(uint){
-        return daoConfig.reserveProportion;
     }
 
     //查看Pool最低赎回时限

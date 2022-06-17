@@ -3,6 +3,7 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/utils/Address.sol";
+import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
 interface IFaucet{
     function initialize (
@@ -14,12 +15,13 @@ interface IFaucet{
         address _owner
     ) external;
     function setLeaseInfo(
-        address _reddeemAddr,
+        address _redeemAddr,
         uint _leaseDate,
         uint _period,
         uint256 _amount,
         uint256 _marginAmount
     ) external;
+    function getPendingRedeemAmount() external view returns(uint);
 }
 
 interface IGovernance{
@@ -29,8 +31,8 @@ interface IGovernance{
     function retTokenAddr() external view returns (address);
     function rewardAddr() external view returns (address);
     function getMarginProportion() external  view returns(uint);
-    function getReserveProportion() external  view returns(uint);
     function authorAmount() external view returns(uint256);
+    function blockHeight() external  view returns(uint);
 }
 
 interface IAirdrop{
@@ -47,6 +49,7 @@ interface IAirdrop{
 
 contract Pool is ERC20{
     using SafeMath for uint256;
+    using EnumerableSet for EnumerableSet.AddressSet;
 
     IGovernance public Igovern;
     IAirdrop public Iairdrop;
@@ -54,18 +57,28 @@ contract Pool is ERC20{
     //faucet模板地址
     address public faucetModelAddr;
 
-    //质押成员地址
-    mapping(uint => address) public memberAddrs;
+    //质押成员信息
+    EnumerableSet.AddressSet private memberAddrs;
+
     //质押开始时间
     mapping(address => uint256) public memberTimes;
-    //质押成员总数
-    uint public memberTotal = 0;
+
     //收集人地址集
     mapping(address => address[]) private collatorAddrs;
     address[] private allCollators;
     //委托人地址集
     mapping(address => address[]) private delegatorAddrs;
     address[] private allDelegators;
+    //用户赎回信息
+    struct RedeemInfo{
+        uint256 redeemNumber;//赎回区块高度
+        uint256 redeemAmount;//赎回数量
+        bool bflag;//是否有效
+    }
+    mapping(address => RedeemInfo) public redeemInfos;
+    // address[] public redeemAddrs;
+    //待赎回总量
+    uint256 public pendingRedeem;
     //lock锁
     bool private unlocked = true;
     //合约sudo地址
@@ -108,6 +121,10 @@ contract Pool is ERC20{
         unlocked = true;
     }
 
+    fallback () external payable{}
+
+    receive () external payable{}
+
     modifier lock() {
         require(unlocked, 'Pool: LOCKED!');
         unlocked = false;
@@ -140,7 +157,7 @@ contract Pool is ERC20{
         faucetModelAddr = _faucetModelAddr;
     }
 
-    //重写_beforeTokenTransfer,用于控制memberAddrs、memberTimes、memberTotal
+    //重写_beforeTokenTransfer,用于控制memberAddrs、memberTimes
     function _beforeTokenTransfer(
         address from,
         address to,
@@ -148,18 +165,26 @@ contract Pool is ERC20{
     ) internal virtual override {
         super._beforeTokenTransfer(from, to, amount);
         if(to != address(0)){
-            if(memberTimes[to] == 0){
-                memberAddrs[memberTotal] = to;
-                memberTotal = memberTotal.add(1);
-            }
+            memberAddrs.add(to);
             memberTimes[to] = block.timestamp;
         }
     }
 
-    //计算当前所需保证金,_stkAmount单位为Wei
+    //重写_afterTokenTransfer,用于控制memberAddrs
+    function _afterTokenTransfer(
+        address from,
+        address to,
+        uint256 amount
+    ) internal virtual override {
+        super._afterTokenTransfer(from, to, amount);
+        if(from != address(0) && balanceOf(from) == 0){
+            memberAddrs.remove(from);
+        }
+    }
+
+    //计算当前所需租赁保证金,_stkAmount单位为Wei
     function getMarginCount(uint256 _stkAmount) private view returns(uint256){
-        require(address(this).balance > _stkAmount,'Balance is not enough!');
-        require((address(this).balance).sub(_stkAmount) >= totalSupply().mul(Igovern.getReserveProportion()).div(100),'Reserve is not enough!');
+        require(address(this).balance.sub(pendingRedeem) >= _stkAmount,'Balance is not enough!');
         return _stkAmount.mul(Igovern.getMarginProportion()).div(10);
     }
 
@@ -190,14 +215,60 @@ contract Pool is ERC20{
         _mint(msg.sender, msg.value);
     }
 
-    //质押赎回,_amount单位为Wei
-    function redeemStake(uint256 _amount) public{
+    //铸造奖励，排除_beforeTokenTransfer调用
+    function mintReward(address _account,uint256 _amount) public {
+        require(msg.sender == Igovern.rewardAddr(),'msg.sender is illegal!');//从奖励合约发起
+        _mint2(_account, _amount);
+    }
+
+    //计划质押赎回,_amount单位为Wei
+    function scheduleRedeemStake(uint256 _amount) public{
         require(_amount > 0,'Amount is zero!');
-        require(balanceOf(msg.sender) >= _amount && address(this).balance >= _amount,'Balance is not enough!');
+        require(balanceOf(msg.sender) >= _amount
+            && address(this).balance.sub(pendingRedeem) >= _amount,'Balance is not enough!');
         uint day = (block.timestamp).sub(memberTimes[msg.sender]).div(60 * 60 *24);
         require(day >= Igovern.getRedeemTimeLimit(),'RedeemTimeLimit is not yet');
-        _burn(msg.sender,_amount);
-        Address.sendValue(payable(msg.sender), _amount);
+        RedeemInfo memory redeemInfo = redeemInfos[msg.sender];
+        require(!redeemInfo.bflag,'redeeming!');
+        redeemInfo.redeemNumber = block.number;
+        redeemInfo.redeemAmount = _amount;
+        redeemInfo.bflag = true;
+        redeemInfos[msg.sender] = redeemInfo;
+        pendingRedeem += _amount;
+        // redeemAddrs.push(msg.sender);
+        _burn(msg.sender, _amount);
+    }
+
+    //确认已计划质押赎回
+    function executeRedeemStake() public{
+        // for(uint i = redeemAddrs.length;i > 0; i--){
+        //     address redeemAddr = redeemAddrs[i - 1];
+        //     RedeemInfo memory redeemInfo = redeemInfos[redeemAddr];
+        //     if(redeemInfo.bflag
+        //         && redeemInfo.redeemNumber.add(Igovern.blockHeight()) <= block.number){
+        //         uint256 amount = redeemInfo.redeemAmount;
+        //         pendingRedeem -= amount;
+        //         redeemInfo.bflag = false;
+        //         redeemInfo.redeemNumber = 0;
+        //         redeemInfo.redeemAmount = 0;
+        //         redeemInfos[redeemAddr] = redeemInfo;
+        //         if(i - 1 != redeemAddrs.length - 1){
+        //             address addr = redeemAddrs[redeemAddrs.length - 1];
+        //             redeemAddrs[i - 1] = addr;
+        //         }
+        //         redeemAddrs.pop();
+        //         Address.sendValue(payable(redeemAddr), amount);
+        //     }
+        // }
+        RedeemInfo memory redeemInfo = redeemInfos[msg.sender];
+        require(redeemInfo.bflag
+            && redeemInfo.redeemNumber.add(Igovern.blockHeight()) <= block.number,'redeem not exists');
+        redeemInfo.bflag = false;
+        pendingRedeem -= redeemInfo.redeemAmount;
+        redeemInfo.redeemNumber = 0;
+        redeemInfo.redeemAmount = 0;
+        redeemInfos[msg.sender] = redeemInfo;
+        Address.sendValue(payable(msg.sender), redeemInfo.redeemAmount);
     }
 
     //创建合约收集人（水龙头）,_stkAmount单位为Wei
@@ -300,7 +371,25 @@ contract Pool is ERC20{
         return block.timestamp.div(24 * 60 * 60);
     }
 
+    //获取最近租赁待赎回
+    function getAllPendingRedeem() public view returns(uint){
+        uint256 pendingRedeemAmount = 0;
+        for(uint i = 0;i < allCollators.length;i++){
+            IFaucet collator = IFaucet(allCollators[i]);
+            pendingRedeemAmount += collator.getPendingRedeemAmount();
+        }
+        for(uint i = 0;i < allDelegators.length;i++){
+            IFaucet delegator = IFaucet(allDelegators[i]);
+            pendingRedeemAmount += delegator.getPendingRedeemAmount();
+        }
+        return pendingRedeemAmount;
+    }
+
     function getBlockNumber() public view returns(uint){
         return block.number;
+    }
+
+    function getMemberAddrs() public view returns(address[] memory){
+        return memberAddrs.values();
     }
 }

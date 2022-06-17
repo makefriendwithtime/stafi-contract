@@ -6,14 +6,16 @@ import "@openzeppelin/contracts/utils/Address.sol";
 interface IGovernance{
     function stkTokenAddr() external view returns (address);
     function getCalTime() external view returns(uint);
+    function rewardType() external  view returns(bool);
+
 }
 
 interface IPool{
-    function memberTotal() external view returns (uint);
-    function memberAddrs(uint _index) external view returns (address);
+    function getMemberAddrs() external view returns (address[] memory);
     function memberTimes(address _account) external view returns (uint256);
     function balanceOf(address _account) external view returns (uint256);
     function totalSupply() external view returns (uint256);
+    function mintReward(address _account,uint256 _amount) external;
 }
 
 contract Reward{
@@ -27,6 +29,8 @@ contract Reward{
     mapping(address => uint256) public daoRewards;
     //合约sudo地址
     address public owner;
+    //保存最后一次奖励分配地址
+    address[] public lastRewardAddrs;
 
     event SendValue(
         address indexed recipient,
@@ -76,19 +80,39 @@ contract Reward{
         uint totalSupply = Ipool.totalSupply();
 
         uint256 newReward = address(this).balance;
-        for(uint i = 0; i < Ipool.memberTotal(); i++){
-            address account = Ipool.memberAddrs(i);
+        //奖励类型
+        bool rewardType = Igovern.rewardType();
+        lastRewardAddrs = Ipool.getMemberAddrs();
+        for(uint i = lastRewardAddrs.length;i > 0 ;i--){
+            address account = lastRewardAddrs[i - 1];
             uint256 memberTime = Ipool.memberTimes(account);
-            uint256 amount = Ipool.balanceOf(account);
-            if(memberTime > 0 && amount > 0){
-                uint256 day = (block.timestamp).sub(memberTime).div(60 * 60 *24);
-                if(day >= calTime){
-                    uint256 reward = newReward.mul(amount).div(totalSupply);
-                    daoRewards[account] = daoRewards[account].add(reward);
-                    Address.sendValue(payable(account),reward);
-                    emit SendValue(account,reward);
+            uint256 day = (block.timestamp).sub(memberTime).div(60 * 60 *24);
+            if(Address.isContract(account)//排除对合约地址的奖励
+            || memberTime == 0
+                || day < calTime){
+                if(i - 1 != lastRewardAddrs.length - 1){
+                    address addr = lastRewardAddrs[lastRewardAddrs.length - 1];
+                    lastRewardAddrs[i - 1] = addr;
                 }
+                lastRewardAddrs.pop();
+                totalSupply -= Ipool.balanceOf(account);
             }
+        }
+        require(lastRewardAddrs.length > 0  && totalSupply > 0,'reward illegal');
+        for(uint i = 0;i < lastRewardAddrs.length;i++){
+            address account = lastRewardAddrs[i];
+            uint256 reward = newReward.mul(Ipool.balanceOf(account)).div(totalSupply);
+            daoRewards[account] = daoRewards[account].add(reward);
+            if(rewardType){
+                //铸造stkToken奖励
+                Ipool.mintReward(account,reward);
+            }else{
+                Address.sendValue(payable(account),reward);
+            }
+            emit SendValue(account,reward);
+        }
+        if(rewardType){
+            Address.sendValue(payable(address(Ipool)),newReward);
         }
     }
 
