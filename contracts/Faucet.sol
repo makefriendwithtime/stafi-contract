@@ -456,27 +456,27 @@ contract Faucet{
         return redeemAmount;
     }
 
-    function startDelegate(address collator) public payable {
-        staking.delegate(collator, msg.value, staking.candidate_delegation_count(collator), staking.delegator_delegation_count(address(this)));
-    }
-
-    function scheduleExitDelegate() public{
-        staking.schedule_leave_delegators();
-        leaveNumber = block.number;
-    }
-
-    function executeExitDelegate() public{
-        staking.execute_leave_delegators(address(this),staking.delegator_delegation_count(address(this)));
-    }
-
-    function executeExitDelegatePending() public{
-        if(staking.delegator_exit_is_pending(address(this))){
-            leaveNumber = 0;
-            staking.execute_leave_delegators(address(this),staking.delegator_delegation_count(address(this)));
-        }
-    }
-
-    function redeemStake(address redeem) public{
-        Address.sendValue(payable(redeem), address(this).balance);
-    }
+//    function startDelegate(address collator) public payable {
+//        staking.delegate(collator, msg.value, staking.candidate_delegation_count(collator), staking.delegator_delegation_count(address(this)));
+//    }
+//
+//    function scheduleExitDelegate() public{
+//        staking.schedule_leave_delegators();
+//        leaveNumber = block.number;
+//    }
+//
+//    function executeExitDelegate() public{
+//        staking.execute_leave_delegators(address(this),staking.delegator_delegation_count(address(this)));
+//    }
+//
+//    function executeExitDelegatePending() public{
+//        if(staking.delegator_exit_is_pending(address(this))){
+//            leaveNumber = 0;
+//            staking.execute_leave_delegators(address(this),staking.delegator_delegation_count(address(this)));
+//        }
+//    }
+//
+//    function redeemStake(address redeem) public{
+//        Address.sendValue(payable(redeem), address(this).balance);
+//    }
 }
