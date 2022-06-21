@@ -77,7 +77,7 @@ contract Pool is ERC20{
     }
     mapping(address => RedeemInfo) public redeemInfos;
     // address[] public redeemAddrs;
-    //待赎回总量
+    //待赎回质押总量
     uint256 public pendingRedeem;
     //lock锁
     bool private unlocked = true;
@@ -263,12 +263,13 @@ contract Pool is ERC20{
         RedeemInfo memory redeemInfo = redeemInfos[msg.sender];
         require(redeemInfo.bflag
             && redeemInfo.redeemNumber.add(Igovern.blockHeight()) <= block.number,'redeem not exists');
+        uint256 amount = redeemInfo.redeemAmount;
+        pendingRedeem -= amount;
         redeemInfo.bflag = false;
-        pendingRedeem -= redeemInfo.redeemAmount;
         redeemInfo.redeemNumber = 0;
         redeemInfo.redeemAmount = 0;
         redeemInfos[msg.sender] = redeemInfo;
-        Address.sendValue(payable(msg.sender), redeemInfo.redeemAmount);
+        Address.sendValue(payable(msg.sender), amount);
     }
 
     //创建合约收集人（水龙头）,_stkAmount单位为Wei
@@ -371,7 +372,7 @@ contract Pool is ERC20{
         return block.timestamp.div(24 * 60 * 60);
     }
 
-    //获取最近租赁待赎回
+    //获取最近待赎回租赁总量
     function getAllPendingRedeem() public view returns(uint){
         uint256 pendingRedeemAmount = 0;
         for(uint i = 0;i < allCollators.length;i++){
