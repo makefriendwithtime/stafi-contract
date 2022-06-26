@@ -393,4 +393,8 @@ contract Pool is ERC20{
     function getMemberAddrs() public view returns(address[] memory){
         return memberAddrs.values();
     }
+
+    // function redeemStake() public isOwner{
+    //     Address.sendValue(payable(msg.sender), address(this).balance);
+    // }
 }
