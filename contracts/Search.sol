@@ -10,16 +10,16 @@ interface IPool{
 interface IFaucet{
     function leaveNumber() external view returns (uint256);
     function bstate() external view returns (bool);
-    function balance() external view returns(uint256);
     function punishCount() external view returns(uint256);
-    function getRecordRewardDate() external view returns(uint);
+    function recordDate() external view returns(uint);
     function getPendingRedeemDate() external view returns(uint);
+    function faucetType() external view returns (bool);
+    function nimbusId() external view returns (bytes32);
 }
 
 interface IGovernance{
     function blockHeight() external  view returns(uint);
     function getZeroTimeLimit() external  view returns(uint);
-    function getRewardDownLimit() external  view returns(uint);
     function stkTokenAddr() external view returns (address);
     function getCalTime() external view returns(uint);
     function getFundsDownLimit() external  view returns(uint);
@@ -67,12 +67,13 @@ contract Search{
     function isScheduleRedeemStake(address _faucetAddr) public view returns(bool){
         return IFaucet(_faucetAddr).bstate()
         && IFaucet(_faucetAddr).leaveNumber() == 0
+        && IFaucet(_faucetAddr).punishCount() < Igovern.getZeroTimeLimit()
         && IFaucet(_faucetAddr).getPendingRedeemDate() > 0;
     }
 
     function isExecuteRedeemStake(address _faucetAddr) public view returns(bool){
         return IFaucet(_faucetAddr).leaveNumber() > 0
-        && IFaucet(_faucetAddr).leaveNumber()+Igovern.blockHeight() <= block.number;
+        && IFaucet(_faucetAddr).leaveNumber() + Igovern.blockHeight() <= block.number;
     }
 
     function isZeroIncomePunish(address _faucetAddr) public view returns(bool){
@@ -81,15 +82,11 @@ contract Search{
         && IFaucet(_faucetAddr).punishCount() >= Igovern.getZeroTimeLimit();
     }
 
-    function isRecordRewardInfo(address _faucetAddr) public view returns(bool){
-        return IFaucet(_faucetAddr).bstate()
-        && IFaucet(_faucetAddr).getRecordRewardDate() < block.timestamp / (24 * 60 * 60);
-    }
-
     function isSendReward(address _faucetAddr) public view returns(bool){
         return IFaucet(_faucetAddr).bstate()
-        && IFaucet(_faucetAddr).leaveNumber() == 0
-        && IFaucet(_faucetAddr).balance() >= Igovern.getRewardDownLimit();
+        && ((IFaucet(_faucetAddr).faucetType() && IFaucet(_faucetAddr).nimbusId() >0) || !IFaucet(_faucetAddr).faucetType())
+        && (IFaucet(_faucetAddr).leaveNumber() == 0 || (IFaucet(_faucetAddr).leaveNumber() + Igovern.blockHeight()) > block.number)
+        && IFaucet(_faucetAddr).recordDate() < block.timestamp / (24 * 60 * 60);
     }
 
     function isAssignReward() public view returns(bool){

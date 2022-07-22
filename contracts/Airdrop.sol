@@ -8,9 +8,7 @@ interface IGovernance{
     function stkTokenAddr() external view returns (address);
     function getCalTime() external  view returns(uint);
     function getFundsDownLimit() external  view returns(uint);
-    function getZeroTimeLimit() external  view returns(uint);
     function dropProportion() external  view returns(uint);
-    function dayLen() external  view returns(uint);
 }
 
 interface IPool{
@@ -145,16 +143,14 @@ contract Airdrop is ERC20{
         uint _leaseDate,
         uint256 _amount
     ) public{
-        uint period = lockInfos[msg.sender][_leaseDate];
-        if(period > 0 && _leaseDate.add(period * Igovern.dayLen()) <= block.timestamp.div(24 * 60 * 60)){
+        if(lockInfos[msg.sender][_leaseDate] > 0){
             _transfer(msg.sender,_account,_amount);
         }
     }
 
     //按地址日期租赁时限将合约中retToken进行销毁（零收益）,_amount单位为Wei
     function zeroIncomePunish(uint _leaseDate,uint256 _amount) public{
-        uint period = lockInfos[msg.sender][_leaseDate];
-        if(period > 0 && _leaseDate.add(Igovern.getZeroTimeLimit()) <= block.timestamp.div(24 * 60 * 60)){
+        if(lockInfos[msg.sender][_leaseDate] > 0){
             _burn(msg.sender, _amount);
         }
     }

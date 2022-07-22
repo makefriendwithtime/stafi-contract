@@ -6,6 +6,7 @@ interface IPool{
     function totalSupply() external view returns (uint256);
     function balanceOf(address _account) external view returns (uint256);
     function memberTimes(address _account) external view returns (uint256);
+    function getMemberAddrs() external view returns(address[] memory);
 }
 
 contract Governance{
@@ -50,7 +51,7 @@ contract Governance{
     //retToken空投比例
     uint public constant dropProportion = 20;
     //每区间peroid包含的天数
-    uint public constant dayLen = 3;//默认10
+    uint public constant dayLen = 2;//默认10
     //奖励类型
     bool public constant rewardType = true; //true奖励stkToken fals奖励质押Token
 
@@ -64,8 +65,10 @@ contract Governance{
         uint uintValue;//治理更新数值
         string strValue;//治理更新url,用于非参数外部治理
         uint256 totalVoter;//应投票总票数
-        uint approveVoter;//赞成票
-        uint opposeVoter;//反对票
+        uint256 totalMember;//应参与总人数
+        uint256 participation;//参与人数
+        uint256 approveVoter;//赞成票
+        uint256 opposeVoter;//反对票
         uint8 governState; //治理状态 0未开始 1进行中 2成功 3失败 4过期
     }
     //提案信息,governanceInfos[number]=info,number表示提案编号,info表示提案对象
@@ -89,7 +92,8 @@ contract Governance{
         uint256 endDate,
         uint uintValue,
         string strValue,
-        uint256 totalVoter);
+        uint256 totalVoter,
+        uint256 totalMember);
 
     event VoteByNumber(
         address indexed votor,
@@ -214,15 +218,17 @@ contract Governance{
 
     //_proposalDownLimit单位为Wei
     function setProposalDownLimit(uint _proposalDownLimit) public isGovernOwner{
+        require(_proposalDownLimit > 0,'_proposalDownLimit is illegal!');
         daoConfig.proposalDownLimit = _proposalDownLimit;
     }
 
     //治理开启
-    function _setGovern(uint _uintValue
-    ,string memory _strValue
-    ,uint _governType
-    ,uint256 _startDate
-    ,uint256 _endDate) private {
+    function _setGovern(uint _uintValue,
+        string memory _strValue,
+        uint _governType,
+        uint256 _startDate,
+        uint256 _endDate
+    ) private {
         require(_startDate > block.timestamp && _startDate < _endDate,'Date is illegal!');
         require(governEndDate[_governType] == 0 || governEndDate[_governType] < _startDate,'Governing!');
         //获取pool的stkToken，达到要求数量则允许提案
@@ -230,6 +236,7 @@ contract Governance{
         uint day = (block.timestamp).sub(Ipool.memberTimes(msg.sender)).div(60 * 60 *24);
         require(day >= daoConfig.calTime,'stakeTime less than calTime!');
         uint256 voters = Ipool.totalSupply();
+        uint256 members = Ipool.getMemberAddrs().length;
         GovernanceInfo memory info;
         currentNumber = currentNumber.add(1);
         info.governType = _governType;
@@ -238,12 +245,14 @@ contract Governance{
         info.uintValue = _uintValue;
         info.strValue = _strValue;
         info.totalVoter = voters;
+        info.totalMember = members;
+        info.participation = 0;
         info.approveVoter = 0;
         info.opposeVoter = 0;
         info.governState = 0;
         governanceInfos[currentNumber] = info;
         governEndDate[_governType] = _endDate;
-        emit StartGovern(msg.sender,currentNumber,_governType,_startDate,_endDate,_uintValue,_strValue,voters);
+        emit StartGovern(msg.sender,currentNumber,_governType,_startDate,_endDate,_uintValue,_strValue,voters,members);
     }
 
     //开启技术方手续费治理
@@ -354,6 +363,7 @@ contract Governance{
         uint256 _startDate,
         uint256 _endDate
     ) public isGovernance{
+        require(_proposalDownLimit > 0,'_proposalDownLimit is illegal!');
         _setGovern(_proposalDownLimit, '', 14, _startDate, _endDate);
     }
 
@@ -385,14 +395,16 @@ contract Governance{
 
         uint day = (info.startDate).sub(Ipool.memberTimes(msg.sender)).div(60 * 60 *24);
         require(day >= daoConfig.calTime,'stakeTime less than calTime!');
-
+        info.participation += 1;
         governanceVotes[_number][msg.sender] = _state;
         if(_state == 1){
             info.approveVoter = info.approveVoter.add(Ipool.balanceOf(msg.sender));
         }else if(_state == 2){
             info.opposeVoter = info.opposeVoter.add(Ipool.balanceOf(msg.sender));
         }
-        if(info.approveVoter.mul(100).div(info.totalVoter) >= daoConfig.voterProportion){
+        //同意票数和参与人数需要达到指定比例
+        if(info.approveVoter.mul(100).div(info.totalVoter) >= daoConfig.voterProportion
+            && info.participation.mul(100).div(info.totalMember) >= daoConfig.voterProportion){
             info.endDate = block.timestamp;
             governEndDate[_governType] = block.timestamp;
             info.governState = 2;
@@ -587,8 +599,10 @@ contract Governance{
         uint uintValue,
         string memory strValue,
         uint256 totalVoter,
-        uint approveVoter,
-        uint opposeVoter,
+        uint256 totalMember,
+        uint256 participation,
+        uint256 approveVoter,
+        uint256 opposeVoter,
         uint8 governState
     ){
         GovernanceInfo memory info = governanceInfos[_number];
@@ -610,6 +624,8 @@ contract Governance{
         info.uintValue,
         info.strValue,
         info.totalVoter,
+        info.totalMember,
+        info.participation,
         info.approveVoter,
         info.opposeVoter,
         governState);

@@ -22,6 +22,9 @@ interface IFaucet{
         uint256 _marginAmount
     ) external;
     function getPendingRedeemAmount() external view returns(uint);
+    function bstate() external view returns (bool);
+    function nimbusId() external view returns (bytes32);
+    function faucetType() external view returns (bool);
 }
 
 interface IGovernance{
@@ -217,7 +220,7 @@ contract Pool is ERC20{
 
     //铸造奖励，排除_beforeTokenTransfer调用
     function mintReward(address _account,uint256 _amount) public {
-        require(msg.sender == Igovern.rewardAddr(),'msg.sender is illegal!');//从奖励合约发起
+        require(msg.sender == Igovern.rewardAddr(),'mintReward:msg.sender is illegal!');//从奖励合约发起
         _mint2(_account, _amount);
     }
 
@@ -226,6 +229,7 @@ contract Pool is ERC20{
         require(_amount > 0,'Amount is zero!');
         require(balanceOf(msg.sender) >= _amount
             && address(this).balance.sub(pendingRedeem) >= _amount,'Balance is not enough!');
+        pendingRedeem += _amount;
         uint day = (block.timestamp).sub(memberTimes[msg.sender]).div(60 * 60 *24);
         require(day >= Igovern.getRedeemTimeLimit(),'RedeemTimeLimit is not yet');
         RedeemInfo memory redeemInfo = redeemInfos[msg.sender];
@@ -234,32 +238,11 @@ contract Pool is ERC20{
         redeemInfo.redeemAmount = _amount;
         redeemInfo.bflag = true;
         redeemInfos[msg.sender] = redeemInfo;
-        pendingRedeem += _amount;
-        // redeemAddrs.push(msg.sender);
         _burn(msg.sender, _amount);
     }
 
     //确认已计划质押赎回
     function executeRedeemStake() public{
-        // for(uint i = redeemAddrs.length;i > 0; i--){
-        //     address redeemAddr = redeemAddrs[i - 1];
-        //     RedeemInfo memory redeemInfo = redeemInfos[redeemAddr];
-        //     if(redeemInfo.bflag
-        //         && redeemInfo.redeemNumber.add(Igovern.blockHeight()) <= block.number){
-        //         uint256 amount = redeemInfo.redeemAmount;
-        //         pendingRedeem -= amount;
-        //         redeemInfo.bflag = false;
-        //         redeemInfo.redeemNumber = 0;
-        //         redeemInfo.redeemAmount = 0;
-        //         redeemInfos[redeemAddr] = redeemInfo;
-        //         if(i - 1 != redeemAddrs.length - 1){
-        //             address addr = redeemAddrs[redeemAddrs.length - 1];
-        //             redeemAddrs[i - 1] = addr;
-        //         }
-        //         redeemAddrs.pop();
-        //         Address.sendValue(payable(redeemAddr), amount);
-        //     }
-        // }
         RedeemInfo memory redeemInfo = redeemInfos[msg.sender];
         require(redeemInfo.bflag
             && redeemInfo.redeemNumber.add(Igovern.blockHeight()) <= block.number,'redeem not exists');
@@ -280,19 +263,17 @@ contract Pool is ERC20{
     ) public lock{
         require(faucetModelAddr != address(0),'faucetModelAddr is not set!');
         require(Igovern.rewardAddr() != address(0),'rewardAddr is not set!');
-        uint256 marginAmount = getMarginCount(_stkAmount.add(Igovern.authorAmount()));
+        uint256 marginAmount = getMarginCount(_stkAmount);
         //创建收集人
         IFaucet collator = IFaucet(createClone(faucetModelAddr));
         collator.initialize(address(Igovern),address(0),_techAddr,msg.sender,true,owner);
-        address[] storage addrs = collatorAddrs[msg.sender];
-        addrs.push(address(collator));
-        collatorAddrs[msg.sender] = addrs;
-        setFaucetInfo(collator,_period,_stkAmount,marginAmount,Igovern.authorAmount());
+        collatorAddrs[msg.sender].push(address(collator));
+        setFaucetInfo(collator,_period,_stkAmount.sub(Igovern.authorAmount()),marginAmount,Igovern.authorAmount());
         allCollators.push(address(collator));
         emit CreateFaucet(true,msg.sender,_techAddr,address(collator),_period,_stkAmount);
     }
 
-    //增加合约收集人选票,_stkAmount单位为Wei
+    //激活合约收集人,_stkAmount单位为Wei
     function addCollator(
         address payable _collatorAddr,
         uint _period,
@@ -300,7 +281,8 @@ contract Pool is ERC20{
     ) public lock{
         uint256 marginAmount = getMarginCount(_stkAmount);
         IFaucet collator = IFaucet(_collatorAddr);
-        setFaucetInfo(collator,_period,_stkAmount,marginAmount,0);
+        require(collator.faucetType(),'not collator!');
+        setFaucetInfo(collator,_period,_stkAmount.sub(Igovern.authorAmount()),marginAmount,Igovern.authorAmount());
         emit AddFaucet(true,msg.sender,_collatorAddr,_period,_stkAmount);
     }
 
@@ -316,17 +298,14 @@ contract Pool is ERC20{
         uint256 marginAmount = getMarginCount(_stkAmount);
         //创建委托人
         IFaucet delegator = IFaucet(createClone(faucetModelAddr));
-        delegator.initialize(address(Igovern),_collatorAddr,address(0),address(0),false,owner);
-        address[] storage addrs = delegatorAddrs[msg.sender];
-        addrs.push(address(delegator));
-        delegatorAddrs[msg.sender] = addrs;
-
+        delegator.initialize(address(Igovern),_collatorAddr,address(0),msg.sender,false,owner);
+        delegatorAddrs[msg.sender].push(address(delegator));
         setFaucetInfo(delegator,_period,_stkAmount,marginAmount,0);
         allDelegators.push(address(delegator));
         emit CreateFaucet(false,msg.sender,_collatorAddr,address(delegator),_period,_stkAmount);
     }
 
-    //增加合约委托人选票,_stkAmount单位为Wei
+    //激活合约委托人,_stkAmount单位为Wei
     function addDelegator(
         address payable _delegatorAddr,
         uint _period,
@@ -334,18 +313,31 @@ contract Pool is ERC20{
     ) public lock{
         uint256 marginAmount = getMarginCount(_stkAmount);
         IFaucet delegator = IFaucet(_delegatorAddr);
+        require(!delegator.faucetType(),'not delegator!');
         setFaucetInfo(delegator,_period,_stkAmount,marginAmount,0);
         emit AddFaucet(false,msg.sender,_delegatorAddr,_period,_stkAmount);
     }
 
     //获取指定地址的委托人集
-    function getDelegatorAddrs(address _account) public view returns(address[] memory){
-        return delegatorAddrs[_account];
+    function getDelegatorAddrs(address _account) public view returns(address[] memory,bool[] memory){
+        address[] memory delegators = delegatorAddrs[_account];
+        bool[] memory states = new bool[](delegators.length);//激活状态
+        for(uint i = 0;i < delegators.length;i++){
+            states[i] = IFaucet(delegators[i]).bstate();
+        }
+        return (delegators,states);
     }
 
     //获取指定地址的收集人集
-    function getCollatorAddrs(address _account) public view returns(address[] memory){
-        return collatorAddrs[_account];
+    function getCollatorAddrs(address _account) public view returns(address[] memory,bool[] memory,bool[] memory){
+        address[] memory collators = collatorAddrs[_account];
+        bool[] memory states = new bool[](collators.length);//激活状态
+        bool[] memory binds = new bool[](collators.length);//绑定nimbusId状态
+        for(uint i = 0;i < collators.length;i++){
+            states[i] = IFaucet(collators[i]).bstate();
+            binds[i] = IFaucet(collators[i]).nimbusId() > 0;
+        }
+        return (collators,states,binds);
     }
 
     //获取所有收集人集
@@ -376,12 +368,10 @@ contract Pool is ERC20{
     function getAllPendingRedeem() public view returns(uint){
         uint256 pendingRedeemAmount = 0;
         for(uint i = 0;i < allCollators.length;i++){
-            IFaucet collator = IFaucet(allCollators[i]);
-            pendingRedeemAmount += collator.getPendingRedeemAmount();
+            pendingRedeemAmount += IFaucet(allCollators[i]).getPendingRedeemAmount();
         }
         for(uint i = 0;i < allDelegators.length;i++){
-            IFaucet delegator = IFaucet(allDelegators[i]);
-            pendingRedeemAmount += delegator.getPendingRedeemAmount();
+            pendingRedeemAmount += IFaucet(allDelegators[i]).getPendingRedeemAmount();
         }
         return pendingRedeemAmount;
     }
@@ -393,8 +383,4 @@ contract Pool is ERC20{
     function getMemberAddrs() public view returns(address[] memory){
         return memberAddrs.values();
     }
-
-    // function redeemStake() public isOwner{
-    //     Address.sendValue(payable(msg.sender), address(this).balance);
-    // }
 }

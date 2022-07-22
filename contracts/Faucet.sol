@@ -15,7 +15,6 @@ interface IAirdrop{
 }
 
 interface IGovernance{
-    function getRewardDownLimit() external  view returns(uint);
     function getZeroTimeLimit() external  view returns(uint);
     function stkTokenAddr() external view returns (address);
     function retTokenAddr() external view returns (address);
@@ -24,7 +23,7 @@ interface IGovernance{
     function blockHeight() external  view returns(uint);
     function getCollatorTechFee() external  view returns(uint);
     function getDaoTechFee() external  view returns(uint);
-    function ownerAddress() external view returns (address);
+    function owner() external view returns (address);
     function dayLen() external  view returns(uint);
 }
 
@@ -40,10 +39,6 @@ contract Faucet{
     address public collatorAddr;
     //收集人技术服务奖励地址(faucetType为真有效)
     address public techAddr;
-    //租赁日期数组，按序号排
-    uint[] public leaseDates;
-    //总的租赁数
-    uint256 public leaseTotal = 0;
     //租赁状态
     bool public bstate = false;
     //退出减少租赁时所在区块高度
@@ -54,14 +49,13 @@ contract Faucet{
     //租赁信息
     struct LeaseInfo{
         uint period;//租赁周期:1个周期为30天，2个周期为60天，依次类推
+        uint256 leaseDate;//租赁日期
         uint256 amount;//租赁票数
-        uint256 totAmount;//每日总租赁票数
-        uint256 totMarginAmount;//每日总抵押票数
+        uint256 marginAmount;//抵押票数
+        uint256 lessAmount;//减少票数
         address redeemAddr;//抵押赎回地址
-        bool redeemFlag;//抵押赎回标记
-        bool bflag;//是否有效
     }
-    mapping(uint => LeaseInfo) public leaseInfos;
+    LeaseInfo public leaseInfo;
     //预编译地址
     address private constant precompileAddress = 0x0000000000000000000000000000000000000800;
     address private constant precompileAuthorMappingAddr = 0x0000000000000000000000000000000000000807;
@@ -70,12 +64,8 @@ contract Faucet{
     AuthorMapping public authorMapping;
     //无奖励计数
     uint public punishCount = 0;
-    //奖励记录信息(每日一次)
-    struct DayRewardInfo{
-        uint rdDate;//最新奖励日期
-        uint256 rdAmount;//最新奖励账户余额
-    }
-    DayRewardInfo public dayRewardInfo;
+    //记录最新奖励日期
+    uint public recordDate;
     //收集人管理者
     address public faucetOwner;
     //合约sudo地址
@@ -124,15 +114,12 @@ contract Faucet{
     fallback () external payable{}
 
     receive () external payable{
-        //判断发送地址是否来自Pool，来自Pool则调用激活委托人或为委托人增加选票
-        if(Igovern.stkTokenAddr() == msg.sender){
-            if(bstate){
-                //增加收集人/委托人选票
-                updateFaucet();
-            }else{
-                //激活收集人/委托人
-                ActivateFaucet();
-            }
+        //判断发送地址是否来自Pool，来自Pool则调用激活委托人
+        if(Igovern.stkTokenAddr() == msg.sender && !bstate){
+            //激活收集人/委托人
+            ActivateFaucet();
+        }else{
+            Address.sendValue(payable(Igovern.rewardAddr()), msg.value);
         }
     }
 
@@ -159,31 +146,14 @@ contract Faucet{
 
     //激活收集人/委托人
     function ActivateFaucet() private {
-        uint leaseDate = block.timestamp.div(24 * 60 * 60);
-        LeaseInfo memory info = leaseInfos[leaseDate];
-        require(info.bflag && info.amount > 0 && address(this).balance >= info.amount,'ActivateFaucet: info is illegal!');
+        require(leaseInfo.amount > 0 && address(this).balance >= leaseInfo.amount,'ActivateFaucet: leaseInfo is illegal!');
         //开始抵押
         if(faucetType){
-            staking.join_candidates(info.amount, staking.candidate_count());
+            staking.join_candidates(leaseInfo.amount, staking.candidate_count());
         }else{
-            staking.delegate(collatorAddr, info.amount, staking.candidate_delegation_count(collatorAddr), staking.delegator_delegation_count(address(this)));
+            staking.delegate(collatorAddr, leaseInfo.amount, staking.candidate_delegation_count(collatorAddr), staking.delegator_delegation_count(address(this)));
         }
-        leaseTotal += info.amount;
         bstate = true;
-    }
-
-    //增加选票
-    function updateFaucet() private {
-        uint leaseDate = block.timestamp.div(24 * 60 * 60);
-        LeaseInfo memory info = leaseInfos[leaseDate];
-        require(info.bflag && info.amount > 0 && address(this).balance >= info.amount,'updateFaucet: info is illegal!');
-        //开始抵押
-        if(faucetType){
-            staking.candidate_bond_more(info.amount);
-        }else{
-            staking.delegator_bond_more(collatorAddr, info.amount);
-        }
-        leaseTotal += info.amount;
     }
 
     //按地址日期租赁时限记录选票信息,_amount、_marginAmount单位为Wei
@@ -193,33 +163,24 @@ contract Faucet{
         uint _period,
         uint256 _amount,
         uint256 _marginAmount
-    ) public{
+    ) external{
+        require(Igovern.stkTokenAddr() == msg.sender,'setLeaseInfo: msg.sender is illegal!');//保证从Pool发起
         require(_period > 0,'setLeaseInfo: period is illegal!');
         require(_leaseDate > 0,'setLeaseInfo: _leaseDate is illegal!');
-        require(Igovern.stkTokenAddr() == msg.sender,'setLeaseInfo: msg.sender is illegal!');//保证从Pool发起
-        require(leaveNumber == 0,'redeeming!');
-        LeaseInfo memory info = leaseInfos[_leaseDate];
-        if(info.period == 0){
-            leaseDates.push(_leaseDate);
-        }
-        info.amount = _amount;
-        info.totMarginAmount = info.totMarginAmount.add(_marginAmount);
-        if(info.bflag){
-            info.totAmount = info.totAmount.add(_amount);
-        }else{
-            info.totAmount = _amount;
-            info.bflag = true;
-        }
-        info.period = _period;
-        info.redeemFlag = false;
-        info.redeemAddr = _redeemAddr;
-        leaseInfos[_leaseDate] = info;
+        require(leaveNumber == 0,'setLeaseInfo: redeeming!');
+        require(!bstate,'setLeaseInfo: it is delegator or collator!');
+
+        leaseInfo.leaseDate = _leaseDate;
+        leaseInfo.amount = _amount;
+        leaseInfo.marginAmount = _marginAmount;
+        leaseInfo.period = _period;
+        leaseInfo.redeemAddr = _redeemAddr;
     }
 
     //奖励收集人
     function collatorReward(uint256 reward) private{
         uint256 daoFee = reward.mul(Igovern.getDaoTechFee()).div(100);
-        Address.sendValue(payable(Igovern.ownerAddress()), daoFee);
+        Address.sendValue(payable(Igovern.owner()), daoFee);
         uint256 techFee = reward.mul(Igovern.getCollatorTechFee()).div(100);
         Address.sendValue(payable(techAddr), techFee);
         Address.sendValue(payable(Igovern.rewardAddr()), reward.sub(techFee).sub(daoFee));
@@ -228,59 +189,74 @@ contract Faucet{
     //奖励收集人
     function delegatorReward(uint256 reward) private{
         uint256 daoFee = reward.mul(Igovern.getDaoTechFee()).div(100);
-        Address.sendValue(payable(Igovern.ownerAddress()), daoFee);
+        Address.sendValue(payable(Igovern.owner()), daoFee);
         Address.sendValue(payable(Igovern.rewardAddr()), reward.sub(daoFee));
     }
 
-    //抵押收益，发送到奖励池（定时器执行）
+    //抵押收益，每日发送一次到奖励池（定时器执行）
     function sendReward() public{
-        require(bstate,'sendReward: not delegator or collator!');
-        require(leaveNumber == 0,'sendReward: redeeming!');
-        uint256 reward = address(this).balance;
-        require(reward >= Igovern.getRewardDownLimit(),'sendReward: balance is not enough!');
-        if(faucetType){
-            collatorReward(reward);
-        }else{
-            delegatorReward(reward);
+        require(bstate && ((faucetType && nimbusId >0) || !faucetType),'not delegator or collator!');
+        require(leaveNumber == 0 || leaveNumber.add(Igovern.blockHeight()) > block.number,'first execute RedeemStake!');
+        uint date = block.timestamp.div(24 * 60 * 60);
+        require(recordDate < date,'recordDate recorded!');
+        if(recordDate > 0 && address(this).balance == 0){
+            punishCount += date.sub(recordDate);
         }
-        emit SendReward(reward);
+        recordDate = date;
+        emit RecordRewardInfo(date,address(this).balance);
+        if(address(this).balance > 0){
+            if(faucetType){
+                collatorReward(address(this).balance);
+            }else{
+                delegatorReward(address(this).balance);
+            }
+            emit SendReward(address(this).balance);
+        }
     }
 
-    //每日记录一次奖励信息（定时器执行）
-    function recordRewardInfo() public{
-        require(bstate,'recordRewardInfo: not delegator or collator!');
-        uint rdDate = block.timestamp.div(24 * 60 * 60);
-        require(dayRewardInfo.rdDate < rdDate,'recordRewardInfo: rdDate is illegal!');
-        if(dayRewardInfo.rdDate > 0 && dayRewardInfo.rdAmount == address(this).balance){
-            punishCount += rdDate.sub(dayRewardInfo.rdDate);
+    //清除NimbusId,退回绑定质押(收集人)
+    function clearAssociation() private{
+        if(nimbusId > 0){
+            authorMapping.clear_association(nimbusId);
+            nimbusId = 0;
+            emit Association(nimbusId);
         }
-        dayRewardInfo.rdDate = rdDate;
-        dayRewardInfo.rdAmount = address(this).balance;
-        emit RecordRewardInfo(rdDate,address(this).balance);
+        Address.sendValue(payable(Igovern.stkTokenAddr()), Igovern.authorAmount());
     }
 
     //零收益处罚，并强制计划回收选票（定时器执行）
     function zeroIncomePunish() public lock{
-        require(bstate,'zeroIncomePunish: not delegator  or collator!');
+        require(bstate,'zeroIncomePunish: not delegator or collator!');
         require(leaveNumber == 0,'redeeming!');
-        require(punishCount >= Igovern.getZeroTimeLimit(),'zeroIncomePunish: punishCount is not enough!');
-        Iairdrop = IAirdrop(Igovern.retTokenAddr());
-        for(uint i = 0;i < leaseDates.length; i++){
-            uint leaseDate = leaseDates[i];
-            LeaseInfo memory info = leaseInfos[leaseDate];
-            if(info.bflag){
-                info.bflag = false;
-                leaseInfos[leaseDate] = info;
-                Iairdrop.zeroIncomePunish(leaseDate,info.totMarginAmount);
-            }
-        }
+        require(punishCount >= Igovern.getZeroTimeLimit(),'punishCount is not enough!');
         //强制计划回收
         bstate = false;
         leaveNumber = block.number;
         if(faucetType){
             staking.schedule_leave_candidates(staking.candidate_count());
+            clearAssociation();
         }else{
             staking.schedule_leave_delegators();
+        }
+        uint256 marginAmount = leaseInfo.marginAmount;
+        leaseInfo.marginAmount = 0;
+        Iairdrop = IAirdrop(Igovern.retTokenAddr());
+        Iairdrop.zeroIncomePunish(leaseInfo.leaseDate,marginAmount);
+        emit LeaveRedeem(leaveNumber);
+    }
+
+    //手动计划租赁赎回（租赁人执行）
+    function scheduleRedeemStakeManual(uint256 _lessAmount) public isFaucetOwner(){
+        require(bstate,'not delegator or collator!');
+        require(leaveNumber == 0,'redeeming!');
+        require(punishCount < Igovern.getZeroTimeLimit(),'Execute zeroIncomePunish!');
+        require(leaseInfo.amount.sub(_lessAmount) >= staking.min_delegation(),'less than min_delegation!');
+        leaveNumber = block.number;
+        leaseInfo.lessAmount = _lessAmount;
+        if(faucetType){
+            staking.schedule_candidate_bond_less(_lessAmount);
+        }else{
+            staking.schedule_delegator_bond_less(collatorAddr,_lessAmount);
         }
         emit LeaveRedeem(leaveNumber);
     }
@@ -289,59 +265,60 @@ contract Faucet{
     function scheduleRedeemStake() public lock{
         require(bstate,'not delegator or collator!');
         require(leaveNumber == 0,'redeeming!');
+        require(punishCount < Igovern.getZeroTimeLimit(),'Execute zeroIncomePunish!');
         //赎回抵押
-        LeaseInfo memory info;
-        uint redeemDate = 0;
-        for(uint i = 0;i < leaseDates.length; i++){
-            uint leaseDate = leaseDates[i];
-            info = leaseInfos[leaseDate];
-            if(info.bflag && leaseDate.add(info.period * Igovern.dayLen()) <= block.timestamp.div(24 * 60 * 60)){
-                redeemDate = leaseDate;
-                break;
-            }
-        }
-        require(redeemDate > 0,'scheduleRedeem is not exists!');
-        //根据数量判断是否委托退出或是部分赎回
+        require(leaseInfo.leaseDate.add(leaseInfo.period * Igovern.dayLen()) <= block.timestamp.div(24 * 60 * 60),'not scheduleRedeem!');
         leaveNumber = block.number;
-        if(leaseTotal.sub(info.totAmount) < staking.min_delegation()){
-            bstate = false;
-            if(faucetType){
-                staking.schedule_leave_candidates(staking.candidate_count());
-            }else{
-                staking.schedule_leave_delegators();
-            }
+        bstate = false;
+        if(faucetType){
+            staking.schedule_leave_candidates(staking.candidate_count());
+            clearAssociation();
         }else{
-            info.redeemFlag = true;
-            leaseInfos[redeemDate] = info;
-            if(faucetType){
-                staking.schedule_candidate_bond_less(info.totAmount);
-            }else{
-                staking.schedule_delegator_bond_less(collatorAddr, info.totAmount);
-            }
+            staking.schedule_leave_delegators();
         }
         emit LeaveRedeem(leaveNumber);
     }
+
     //确认已计划回收的选票，并返还到质押池Pool（定时器执行）
     function executeRedeemStake() public lock{
         require(leaveNumber > 0,'Redeem schedule is not exists!');
         //判断区块高度是否到达设定高度
         require(leaveNumber.add(Igovern.blockHeight()) <= block.number,'not yet reached!');
         leaveNumber = 0;
-        Iairdrop = IAirdrop(Igovern.retTokenAddr());
-        if(!bstate){
+        if(bstate){
+            uint256 amount = leaseInfo.lessAmount;
+            leaseInfo.lessAmount = 0;
+            if(faucetType){
+                //这里需要判断是否计划是否已经被执行
+                if(staking.candidate_request_is_pending(address(this))){
+                    staking.execute_candidate_bond_less(address(this));
+                }
+                Address.sendValue(payable(Igovern.stkTokenAddr()), amount);
+            }else{
+                //这里需要判断是否计划是否已经被执行
+                if(staking.delegation_request_is_pending(address(this),collatorAddr)){
+                    staking.execute_delegation_request(address(this),collatorAddr);
+                }
+                Address.sendValue(payable(Igovern.stkTokenAddr()), amount);
+            }
+            uint256 marginAmount = amount.mul(leaseInfo.marginAmount).div(leaseInfo.amount);
+            leaseInfo.amount -= amount;
+            if(marginAmount > 0){
+                leaseInfo.marginAmount -= marginAmount;
+                Iairdrop = IAirdrop(Igovern.retTokenAddr());
+                Iairdrop.unlockLeaseMargin(leaseInfo.redeemAddr,leaseInfo.leaseDate,marginAmount);
+            }
+        }else{
+            uint256 amount = leaseInfo.amount;
+            leaseInfo.amount = 0;
             if(faucetType){
                 //这里需要判断是否计划是否已经被执行
                 if(staking.is_candidate(address(this))){
                     staking.execute_leave_candidates(address(this),staking.candidate_delegation_count(address(this)));
                 }
-                if(nimbusId > 0){
-                    authorMapping.clear_association(nimbusId);
-                    nimbusId = 0;
-                }
                 //奖励收集人
-                uint256 reward = address(this).balance.sub(leaseTotal);
-                Address.sendValue(payable(Igovern.stkTokenAddr()), leaseTotal);
-                leaseTotal = 0;
+                uint256 reward = address(this).balance.sub(amount);
+                Address.sendValue(payable(Igovern.stkTokenAddr()), amount);
                 if(reward > 0){
                     collatorReward(reward);
                 }
@@ -351,53 +328,24 @@ contract Faucet{
                     staking.execute_leave_delegators(address(this),staking.delegator_delegation_count(address(this)));
                 }
                 //奖励委托人
-                uint256 reward = address(this).balance.sub(leaseTotal);
-                Address.sendValue(payable(Igovern.stkTokenAddr()), leaseTotal);
-                leaseTotal = 0;
+                uint256 reward = address(this).balance.sub(amount);
+                Address.sendValue(payable(Igovern.stkTokenAddr()), amount);
                 if(reward > 0){
                     delegatorReward(reward);
                 }
             }
-            for(uint i = 0;i < leaseDates.length; i++){
-                uint leaseDate = leaseDates[i];
-                LeaseInfo memory info = leaseInfos[leaseDate];
-                if(info.bflag){
-                    info.bflag = false;
-                    leaseInfos[leaseDate] = info;
-                    Iairdrop.unlockLeaseMargin(info.redeemAddr,leaseDate,info.totMarginAmount);
-                }
+            if(leaseInfo.marginAmount > 0){
+                Iairdrop = IAirdrop(Igovern.retTokenAddr());
+                Iairdrop.unlockLeaseMargin(leaseInfo.redeemAddr,leaseInfo.leaseDate,leaseInfo.marginAmount);
             }
-        }else{
-            for(uint i = 0;i < leaseDates.length; i++){
-                uint leaseDate = leaseDates[i];
-                LeaseInfo memory info = leaseInfos[leaseDate];
-                if(info.bflag && info.redeemFlag){
-                    info.bflag = false;
-                    info.redeemFlag = false;
-                    leaseInfos[leaseDate] = info;
-                    if(faucetType){
-                        //这里需要判断是否计划是否已经被执行
-                        if(staking.candidate_request_is_pending(address(this))){
-                            staking.execute_candidate_bond_less(address(this));
-                        }
-                    }else {
-                        //这里需要判断是否计划是否已经被执行
-                        if(staking.delegation_request_is_pending(address(this), collatorAddr)){
-                            staking.execute_delegation_request(address(this),collatorAddr);
-                        }
-                    }
-                    leaseTotal = leaseTotal.sub(info.totAmount);
-                    Address.sendValue(payable(Igovern.stkTokenAddr()), info.totAmount);
-                    Iairdrop.unlockLeaseMargin(info.redeemAddr,leaseDate,info.totMarginAmount);
-                    break;
-                }
-            }
+            recordDate = 0;
+            punishCount = 0;
         }
         emit RedeemState(true);
     }
 
     //添加NimbusId，用于绑定钱包奖励(收集人)
-    function addAssociation(bytes32 newNimbusId) public isOwner(){
+    function addAssociation(bytes32 newNimbusId) public isFaucetOwner(){
         require(faucetType && bstate,'not collator!');
         require(address(this).balance >= Igovern.authorAmount(),'balance not enough!');
         authorMapping.add_association(newNimbusId);
@@ -406,7 +354,7 @@ contract Faucet{
     }
 
     //更新NimbusId(收集人)
-    function updateAssociation(bytes32 oldNimbusId,bytes32 newNimbusId) public isOwner(){
+    function updateAssociation(bytes32 oldNimbusId,bytes32 newNimbusId) public isFaucetOwner(){
         require(nimbusId > 0,'Association not binded!');
         authorMapping.update_association(oldNimbusId,newNimbusId);
         nimbusId = newNimbusId;
@@ -418,139 +366,21 @@ contract Faucet{
         return address(this).balance;
     }
 
-    function getRecordRewardDate() public view returns(uint){
-        return dayRewardInfo.rdDate;
-    }
-
     function getPendingRedeemDate() public view returns(uint){
-        uint redeemDate = 0;
-        for(uint i = 0;i < leaseDates.length; i++){
-            uint leaseDate = leaseDates[i];
-            LeaseInfo memory info = leaseInfos[leaseDate];
-            uint expiryDate = leaseDate.add(info.period * Igovern.dayLen());
-            if(info.bflag
-                && expiryDate <= block.timestamp.div(24 * 60 * 60)){
-                redeemDate = leaseDate;
-                break;
-            }
+        if(leaseInfo.leaseDate.add(leaseInfo.period * Igovern.dayLen()) <= block.timestamp.div(24 * 60 * 60)){
+            return leaseInfo.leaseDate;
         }
-        return redeemDate;
+        return 0;
     }
 
     function getPendingRedeemAmount() public view returns(uint){
-        uint redeemAmount = 0;
-        if(!bstate){
-            if(leaveNumber > 0){
-                redeemAmount = leaseTotal;
-            }
-        }else{
-            for(uint i = 0;i < leaseDates.length; i++){
-                uint leaseDate = leaseDates[i];
-                LeaseInfo memory info = leaseInfos[leaseDate];
-                if(info.bflag  && info.redeemFlag){
-                    redeemAmount = info.totAmount;
-                    break;
-                }
+        if(leaveNumber > 0){
+            if(bstate){
+                return leaseInfo.lessAmount;
+            }else{
+                return leaseInfo.amount;
             }
         }
-        return redeemAmount;
+        return 0;
     }
-
-    // function T_startDelegate(address collator) public payable {
-    //     staking = ParachainStaking(precompileAddress);
-    //     staking.delegate(collator, msg.value, staking.candidate_delegation_count(collator), staking.delegator_delegation_count(address(this)));
-    // }
-
-    // function T_scheduleExitDelegate() public{
-    //     staking.schedule_leave_delegators();
-    //     leaveNumber = block.number;
-    // }
-
-    // function T_executeExitDelegate() public{
-    //     staking.execute_leave_delegators(address(this),staking.delegator_delegation_count(address(this)));
-    // }
-
-    // function T_executeExitDelegatePending() public{
-    //     if(staking.is_delegator(address(this))){
-    //         leaveNumber = 0;
-    //         staking.execute_leave_delegators(address(this),staking.delegator_delegation_count(address(this)));
-    //     }
-    // }
-
-    // function T_isDelegator() public view returns (bool){
-    //     return staking.is_delegator(address(this));
-    // }
-
-    // function T_startCandidates() public payable{
-    //     staking = ParachainStaking(precompileAddress);
-    //     staking.join_candidates(msg.value, staking.candidate_count());
-    // }
-
-    // function T_scheduleExitCandidates() public{
-    //     staking.schedule_leave_candidates(staking.candidate_count());
-    //     leaveNumber = block.number;
-    // }
-
-    // function T_executeExitCandidates() public{
-    //     staking.execute_leave_candidates(address(this),staking.candidate_delegation_count(address(this)));
-    // }
-
-    // function T_executeExitCandidatesPending() public{
-    //     if(staking.is_candidate(address(this))){
-    //         leaveNumber = 0;
-    //         staking.execute_leave_candidates(address(this),staking.candidate_delegation_count(address(this)));
-    //     }
-    // }
-
-    // function T_isCandidate() public view returns (bool){
-    //     return staking.is_candidate(address(this));
-    // }
-
-    // function T_isCandidatePending() public view returns (bool){
-    //     return staking.candidate_exit_is_pending(address(this));
-    // }
-
-    // function T_scheduleDelegatorBondLess(address _collator,uint _amount) public{
-    //     staking.schedule_delegator_bond_less(_collator, _amount);
-    //     leaveNumber = block.number;
-    // }
-
-    // function T_executeDelegatorBondLess(address _collator) public{
-    //     staking.execute_delegation_request(address(this),_collator);
-    // }
-
-    // function T_executeDelegatorBondLessPending(address _collator) public{
-    //     if(staking.delegation_request_is_pending(address(this), _collator)){
-    //         leaveNumber = 0;
-    //         staking.execute_delegation_request(address(this),_collator);
-    //     }
-    // }
-
-    // function T_isDelegationRequestPending(address _collator) public view returns (bool){
-    //     return staking.delegation_request_is_pending(address(this),_collator);
-    // }
-
-    // function T_scheduleCandidateBondLess(uint _amount) public{
-    //     staking.schedule_candidate_bond_less(_amount);
-    //     leaveNumber = block.number;
-    // }
-
-    // function T_executeCandidateBondLess() public{
-    //     staking.execute_candidate_bond_less(address(this));
-    // }
-
-    // function T_executeCandidateBondLessPending() public{
-    //     if(staking.candidate_request_is_pending(address(this))){
-    //         leaveNumber = 0;
-    //         staking.execute_candidate_bond_less(address(this));
-    //     }
-    // }
-
-    // function T_isCandidateRequestPending() public view returns (bool){
-    //     return staking.candidate_request_is_pending(address(this));
-    // }
-
-    // function T_redeemStake(address redeem) public{
-    //     Address.sendValue(payable(redeem), address(this).balance);
-    // }
 }

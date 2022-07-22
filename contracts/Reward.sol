@@ -7,7 +7,7 @@ interface IGovernance{
     function stkTokenAddr() external view returns (address);
     function getCalTime() external view returns(uint);
     function rewardType() external  view returns(bool);
-
+    function getRewardDownLimit() external  view returns(uint);
 }
 
 interface IPool{
@@ -29,8 +29,6 @@ contract Reward{
     mapping(address => uint256) public daoRewards;
     //合约sudo地址
     address public owner;
-    //保存最后一次奖励分配地址
-    address[] public lastRewardAddrs;
 
     event SendValue(
         address indexed recipient,
@@ -67,41 +65,49 @@ contract Reward{
     fallback () external payable{}
 
     receive () external payable{
-        assignReward();
+        if(address(this).balance >= Igovern.getRewardDownLimit()){
+            assignReward();
+        }
     }
 
     //接收委托人和收集人的奖励，达到分配条件进行奖励分配（stkToken持有人）
     function assignReward() public lock{
-        require(Igovern.stkTokenAddr() != address(0),'stkTokenAddr not seted!');
+        require(Igovern.stkTokenAddr() != address(0),'assignReward:stkTokenAddr not seted!');
         uint calTime = Igovern.getCalTime();
         require(calTime > 0,'assignReward:calTime is zero!');
-        require(address(this).balance > 0,'Less then rewardDownLimit');
+        require(address(this).balance > 0,'assignReward:Less then rewardDownLimit');
         Ipool = IPool(Igovern.stkTokenAddr());
         uint totalSupply = Ipool.totalSupply();
 
         uint256 newReward = address(this).balance;
         //奖励类型
         bool rewardType = Igovern.rewardType();
-        lastRewardAddrs = Ipool.getMemberAddrs();
-        for(uint i = lastRewardAddrs.length;i > 0 ;i--){
-            address account = lastRewardAddrs[i - 1];
+        address[] memory lastRewardAddrs = new address[](Ipool.getMemberAddrs().length);
+        uint index = 0;
+        for(uint i = 0;i < Ipool.getMemberAddrs().length ;i++){
+            address account = Ipool.getMemberAddrs()[i];
             uint256 memberTime = Ipool.memberTimes(account);
             uint256 day = (block.timestamp).sub(memberTime).div(60 * 60 *24);
             if(Address.isContract(account)//排除对合约地址的奖励
             || memberTime == 0
                 || day < calTime){
-                if(i - 1 != lastRewardAddrs.length - 1){
-                    address addr = lastRewardAddrs[lastRewardAddrs.length - 1];
-                    lastRewardAddrs[i - 1] = addr;
-                }
-                lastRewardAddrs.pop();
                 totalSupply -= Ipool.balanceOf(account);
+            }else{
+                lastRewardAddrs[index] = account;
+                index++;
             }
         }
-        require(lastRewardAddrs.length > 0  && totalSupply > 0,'reward illegal');
-        for(uint i = 0;i < lastRewardAddrs.length;i++){
+        require(index > 0  && totalSupply > 0,'assignReward:reward illegal');
+        uint256 sendReward = 0;
+        for(uint i = 0;i < index;i++){
             address account = lastRewardAddrs[i];
-            uint256 reward = newReward.mul(Ipool.balanceOf(account)).div(totalSupply);
+            uint256 reward = 0;
+            if(i == index -1){
+                reward = newReward.sub(sendReward);
+            }else{
+                reward = newReward.mul(Ipool.balanceOf(account)).div(totalSupply);
+                sendReward += reward;
+            }
             daoRewards[account] = daoRewards[account].add(reward);
             if(rewardType){
                 //铸造stkToken奖励
