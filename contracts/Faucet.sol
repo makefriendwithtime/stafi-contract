@@ -73,16 +73,6 @@ contract Faucet{
     //lock锁
     bool private unlocked = true;
 
-    event SendReward(uint256 _reward);
-
-    event RecordRewardInfo(uint _rdDate,uint256 _rdAmount);
-
-    event LeaveRedeem(uint256 _leaveNumber);
-
-    event Association(bytes32 _nimbusId);
-
-    event RedeemState(bool _success);
-
     constructor (){
     }
 
@@ -203,14 +193,12 @@ contract Faucet{
             punishCount += date.sub(recordDate);
         }
         recordDate = date;
-        emit RecordRewardInfo(date,address(this).balance);
         if(address(this).balance > 0){
             if(faucetType){
                 collatorReward(address(this).balance);
             }else{
                 delegatorReward(address(this).balance);
             }
-            emit SendReward(address(this).balance);
         }
     }
 
@@ -219,7 +207,6 @@ contract Faucet{
         if(nimbusId > 0){
             authorMapping.clear_association(nimbusId);
             nimbusId = 0;
-            emit Association(nimbusId);
         }
         Address.sendValue(payable(Igovern.stkTokenAddr()), Igovern.authorAmount());
     }
@@ -242,7 +229,6 @@ contract Faucet{
         leaseInfo.marginAmount = 0;
         Iairdrop = IAirdrop(Igovern.retTokenAddr());
         Iairdrop.zeroIncomePunish(leaseInfo.leaseDate,marginAmount);
-        emit LeaveRedeem(leaveNumber);
     }
 
     //手动计划租赁赎回（租赁人执行）
@@ -258,7 +244,6 @@ contract Faucet{
         }else{
             staking.schedule_delegator_bond_less(collatorAddr,_lessAmount);
         }
-        emit LeaveRedeem(leaveNumber);
     }
 
     //按选票信息正常计划回收选票（定时器执行）
@@ -276,7 +261,6 @@ contract Faucet{
         }else{
             staking.schedule_leave_delegators();
         }
-        emit LeaveRedeem(leaveNumber);
     }
 
     //确认已计划回收的选票，并返还到质押池Pool（定时器执行）
@@ -341,7 +325,6 @@ contract Faucet{
             recordDate = 0;
             punishCount = 0;
         }
-        emit RedeemState(true);
     }
 
     //添加NimbusId，用于绑定钱包奖励(收集人)
@@ -350,7 +333,6 @@ contract Faucet{
         require(address(this).balance >= Igovern.authorAmount(),'balance not enough!');
         authorMapping.add_association(newNimbusId);
         nimbusId = newNimbusId;
-        emit Association(nimbusId);
     }
 
     //更新NimbusId(收集人)
@@ -358,7 +340,6 @@ contract Faucet{
         require(nimbusId > 0,'Association not binded!');
         authorMapping.update_association(oldNimbusId,newNimbusId);
         nimbusId = newNimbusId;
-        emit Association(nimbusId);
     }
 
     //原生质押token余额

@@ -30,9 +30,9 @@ contract Reward{
     //合约sudo地址
     address public owner;
 
-    event SendValue(
-        address indexed recipient,
-        uint256 amount);
+    event AssignReward(
+        address[] rewardAddrs,
+        uint256[] rewardAmounts);
 
     constructor (){
     }
@@ -75,14 +75,14 @@ contract Reward{
         require(Igovern.stkTokenAddr() != address(0),'assignReward:stkTokenAddr not seted!');
         uint calTime = Igovern.getCalTime();
         require(calTime > 0,'assignReward:calTime is zero!');
-        require(address(this).balance > 0,'assignReward:Less then rewardDownLimit');
+        require(address(this).balance > 0,'assignReward:balance is zero!');
         Ipool = IPool(Igovern.stkTokenAddr());
         uint totalSupply = Ipool.totalSupply();
 
         uint256 newReward = address(this).balance;
         //奖励类型
         bool rewardType = Igovern.rewardType();
-        address[] memory lastRewardAddrs = new address[](Ipool.getMemberAddrs().length);
+        address[] memory rewardAddrs = new address[](Ipool.getMemberAddrs().length);
         uint index = 0;
         for(uint i = 0;i < Ipool.getMemberAddrs().length ;i++){
             address account = Ipool.getMemberAddrs()[i];
@@ -93,14 +93,15 @@ contract Reward{
                 || day < calTime){
                 totalSupply -= Ipool.balanceOf(account);
             }else{
-                lastRewardAddrs[index] = account;
+                rewardAddrs[index] = account;
                 index++;
             }
         }
         require(index > 0  && totalSupply > 0,'assignReward:reward illegal');
         uint256 sendReward = 0;
+        uint256[] memory rewardAmounts = new uint256[](index);
         for(uint i = 0;i < index;i++){
-            address account = lastRewardAddrs[i];
+            address account = rewardAddrs[i];
             uint256 reward = 0;
             if(i == index -1){
                 reward = newReward.sub(sendReward);
@@ -115,11 +116,12 @@ contract Reward{
             }else{
                 Address.sendValue(payable(account),reward);
             }
-            emit SendValue(account,reward);
+            rewardAmounts[i] = reward;
         }
         if(rewardType){
             Address.sendValue(payable(address(Ipool)),newReward);
         }
+        emit AssignReward(rewardAddrs,rewardAmounts);
     }
 
     //原生质押token余额

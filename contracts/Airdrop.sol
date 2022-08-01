@@ -33,6 +33,10 @@ contract Airdrop is ERC20{
     //合约sudo地址
     address public owner;
 
+    event Droping(
+        address[] dropAddrs,
+        uint256[] dropAmounts);
+
     constructor () ERC20('THIS IS A REWARD TOKEN','retMOVR'){
     }
 
@@ -77,6 +81,9 @@ contract Airdrop is ERC20{
     function droping(address[] memory _memberAddrs, uint _calTime) private lock{
         // uint256 balance = Ipool.balance();
         // uint256 totalSupply = Ipool.totalSupply();
+        address[] memory dropAddrs = new address[](_memberAddrs.length);
+        uint256[] memory dropAmounts = new uint256[](_memberAddrs.length);
+        uint index = 0;
         for(uint i=0;i < _memberAddrs.length;i++){
             address account = _memberAddrs[i];
             uint256 memberTime = Ipool.memberTimes(account);
@@ -91,9 +98,15 @@ contract Airdrop is ERC20{
                     // amount = balance.mul(amount).mul(Igovern.dropProportion).div(totalSupply).div(100);
                     //池子持有stktoken，按比例空投算法
                     amount = amount.mul(Igovern.dropProportion()).div(100);
+                    dropAddrs[index] = account;
+                    dropAmounts[index] = amount;
+                    index++;
                     _mint(account, amount);
                 }
             }
+        }
+        if(index > 0){
+            emit Droping(dropAddrs,dropAmounts);
         }
     }
 

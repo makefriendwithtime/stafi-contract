@@ -137,13 +137,6 @@ contract Governance{
         _;
     }
 
-    modifier isGovernOwner() {
-        require(msg.sender == owner,'Not management!');
-        //pool未开启治理，未达到投资下限
-        require(Ipool.totalSupply() < daoConfig.fundsDownLimit,'start governance!');
-        _;
-    }
-
     function setStkTokenAddr(address _stkTokenAddr) public{
         require(stkTokenAddr == address(0) || msg.sender == owner,'Seted or Not management!');
         stkTokenAddr = _stkTokenAddr;
@@ -163,63 +156,6 @@ contract Governance{
     function setSearchAddr(address _searchAddr) public{
         require(searchAddr == address(0) || msg.sender == owner,'Seted or Not management!');
         searchAddr = _searchAddr;
-    }
-
-    function setDaoTechFee(uint _daoTechFee) public isGovernOwner{
-        require(_daoTechFee >= daoTechLimit,'_daoTechFee is illegal!');
-        daoConfig.daoTechFee = _daoTechFee;
-    }
-
-    function setCollatorTechFee(uint _collatorTechFee) public isGovernOwner{
-        require(_collatorTechFee >= collatorTechLimit,'_collatorTechFee is illegal!');
-        daoConfig.collatorTechFee = _collatorTechFee;
-    }
-
-    //_fundsDownLimit单位为Wei
-    function setFundsDownLimit(uint _fundsDownLimit) public isGovernOwner{
-        daoConfig.fundsDownLimit = _fundsDownLimit;
-    }
-
-    //_fundsUpLimit单位为Wei
-    function setFundsUpLimit(uint _fundsUpLimit) public isGovernOwner{
-        daoConfig.fundsUpLimit =  _fundsUpLimit;
-    }
-
-    //_perInvestDownLimit单位为Wei
-    function setPerInvestDownLimit(uint _perInvestDownLimit) public isGovernOwner{
-        daoConfig.perInvestDownLimit =  _perInvestDownLimit;
-    }
-
-    function setVoterProportion(uint _voterProportion) public isGovernOwner{
-        require(_voterProportion >= voterDownLimit,'_voterProportion is illegal!');
-        daoConfig.voterProportion =  _voterProportion;
-    }
-
-    //_rewardDownLimit单位为Wei
-    function setRewardDownLimit(uint _rewardDownLimit) public isGovernOwner{
-        daoConfig.rewardDownLimit = _rewardDownLimit;
-    }
-
-    function setCalTime(uint _calTime) public isGovernOwner{
-        daoConfig.calTime =  _calTime;
-    }
-
-    function setRedeemTimeLimit(uint _redeemTimeLimit) public isGovernOwner{
-        daoConfig.redeemTimeLimit =  _redeemTimeLimit;
-    }
-
-    function setZeroTimeLimit(uint _zeroTimeLimit) public isGovernOwner{
-        daoConfig.zeroTimeLimit =  _zeroTimeLimit;
-    }
-
-    function setMarginProportion(uint _marginProportion) public isGovernOwner{
-        daoConfig.marginProportion = _marginProportion;
-    }
-
-    //_proposalDownLimit单位为Wei
-    function setProposalDownLimit(uint _proposalDownLimit) public isGovernOwner{
-        require(_proposalDownLimit > 0,'_proposalDownLimit is illegal!');
-        daoConfig.proposalDownLimit = _proposalDownLimit;
     }
 
     //治理开启
